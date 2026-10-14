@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>CRM de Leads | PAO</title>
+  <link rel="icon" href="/img/logo-pao.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#070c18; --card:#0f192e; --card2:#13203a; --line:rgba(148,170,214,.16); --text:#eef2fa; --muted:#a3b0c8; --blue:#5aa6ff; --orange:#ff8a2a; --green:#25d366; --red:#ff6b6b; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:400 15px/1.5 Inter, system-ui, sans-serif; }
+    header { position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:14px; padding:12px 16px; background:rgba(7,12,24,.92); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+    header img { width:36px; height:36px; border-radius:50%; object-fit:cover; }
+    h1 { font:800 1.15rem Montserrat, sans-serif; margin:0; }
+    h1 b { color:var(--orange); }
+    .grow { flex:1; }
+    main { padding:16px; max-width:1400px; margin:0 auto; }
+    .stats { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+    .stat { border:1px solid var(--line); background:var(--card); border-radius:12px; padding:8px 14px; cursor:pointer; color:var(--text); font:inherit; text-align:left; }
+    .stat small { display:block; color:var(--muted); font-size:.75rem; text-transform:capitalize; }
+    .stat strong { font:800 1.25rem Montserrat, sans-serif; }
+    .stat.on { border-color:var(--orange); background:rgba(255,138,42,.12); }
+    .tools { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+    input, select, textarea { font:inherit; color:var(--text); background:#0a1222; border:1px solid var(--line); border-radius:10px; padding:9px 12px; }
+    input[type=search] { flex:1; min-width:200px; }
+    .btn { font:600 .9rem Inter, sans-serif; border-radius:999px; padding:9px 16px; border:1px solid var(--line); background:transparent; color:var(--text); cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:6px; }
+    .btn--primary { background:var(--orange); color:#1a0d00; border-color:transparent; }
+    .btn--wa { background:var(--green); color:#04210f; border-color:transparent; }
+    .btn--danger { color:var(--red); border-color:rgba(255,107,107,.35); }
+    .list { display:grid; gap:10px; }
+    .lead { background:linear-gradient(160deg,var(--card2),var(--card)); border:1px solid var(--line); border-radius:14px; padding:14px 16px; display:grid; grid-template-columns:1.2fr 1.3fr 1fr; gap:14px; }
+    .lead h2 { font:700 1.05rem Montserrat, sans-serif; margin:0 0 2px; }
+    .meta { color:var(--muted); font-size:.85rem; }
+    .meta a { color:var(--blue); }
+    .tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+    .tag { font-size:.78rem; padding:3px 9px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+    .tag--hot { color:#1a0d00; background:var(--orange); border-color:transparent; font-weight:600; }
+    dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:2px 10px; font-size:.88rem; }
+    dt { color:var(--muted); }
+    dd { margin:0; }
+    .side { display:grid; gap:8px; align-content:start; }
+    .side textarea { width:100%; min-height:64px; resize:vertical; }
+    .row { display:flex; gap:6px; flex-wrap:wrap; }
+    .saved { color:var(--green); font-size:.8rem; min-height:1em; }
+    .empty { text-align:center; color:var(--muted); padding:60px 16px; border:1px dashed var(--line); border-radius:14px; }
+    .st-nuevo { border-left:4px solid var(--blue); }
+    .st-contactado { border-left:4px solid #b28cff; }
+    .st-reunion { border-left:4px solid #ffd166; }
+    .st-propuesta { border-left:4px solid var(--orange); }
+    .st-cliente { border-left:4px solid var(--green); }
+    .st-perdido { border-left:4px solid #55607a; opacity:.75; }
+    @media (max-width: 900px) { .lead { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="/img/logo-pao.jpg" alt="">
+    <h1><b>PAO</b> · CRM de leads</h1>
+    <span class="grow"></span>
+    <a class="btn" href="/" target="_blank" rel="noopener">Ver landing</a>
+    <a class="btn btn--primary" href="/api/admin/leads.csv">Exportar a Excel (CSV)</a>
+  </header>
+  <main>
+    <div class="stats" id="stats"></div>
+    <div class="tools">
+      <input type="search" id="q" placeholder="Buscar por nombre, WhatsApp, email, negocio o notas…">
+      <button class="btn" id="reload">Actualizar</button>
+    </div>
+    <div class="list" id="list"><p class="empty">Cargando…</p></div>
+  </main>
+
+  <script>
+  (() => {
+    const LABELS = { nuevo: 'Nuevo', contactado: 'Contactado', reunion: 'Reunión', propuesta: 'Propuesta', cliente: 'Cliente', perdido: 'Perdido' };
+    let filter = '';
+    let statuses = Object.keys(LABELS);
+    const $ = (s) => document.querySelector(s);
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const fmtDate = (s) => { const d = new Date(s.replace(' ', 'T') + 'Z'); return d.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }); };
+    const waNumber = (n) => { let d = String(n).replace(/\D/g, ''); if (d.length === 10) d = '549' + d; return d; };
+
+    async function api(path, opts) {
+      const r = await fetch(path, { headers: { 'content-type': 'application/json' }, ...opts });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'Error');
+      return j;
+    }
+
+    async function load() {
+      const p = new URLSearchParams();
+      if (filter) p.set('status', filter);
+      const q = $('#q').value.trim();
+      if (q) p.set('q', q);
+      const data = await api('/api/admin/leads?' + p);
+      statuses = data.statuses;
+      renderStats(data.counts);
+      renderList(data.leads);
+    }
+
+    function renderStats(counts) {
+      const map = Object.fromEntries(counts.map((c) => [c.status, c.n]));
+      const total = counts.reduce((a, c) => a + c.n, 0);
+      const btn = (key, label, n) => `<button class="stat ${filter === key ? 'on' : ''}" data-f="${key}"><small>${label}</small><strong>${n}</strong></button>`;
+      $('#stats').innerHTML = btn('', 'Todos', total) + statuses.map((s) => btn(s, LABELS[s] || s, map[s] || 0)).join('');
+      $('#stats').querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { filter = b.dataset.f; load(); });
+    }
+
+    function renderList(leads) {
+      if (!leads.length) { $('#list').innerHTML = '<p class="empty">Todavía no hay leads con este filtro.</p>'; return; }
+      $('#list').innerHTML = leads.map((l) => {
+        const hot = l.timeline === 'Quiero arrancar ya';
+        const origin = [l.utm_source, l.utm_medium, l.utm_campaign].filter(Boolean).join(' / ') || (l.gclid ? 'Google Ads' : l.fbclid ? 'Meta Ads' : 'Directo / orgánico');
+        return `<article class="lead st-${esc(l.status)}" data-id="${l.id}">
+          <div>
+            <h2>${esc(l.name)}</h2>
+            <div class="meta">${fmtDate(l.created_at)} · #${l.id}</div>
+            <div class="meta">📱 ${esc(l.whatsapp)}${l.email ? ` · ✉️ <a href="mailto:${esc(l.email)}">${esc(l.email)}</a>` : ''}</div>
+            <div class="tags">
+              ${hot ? '<span class="tag tag--hot">🔥 Quiere arrancar ya</span>' : ''}
+              ${l.ad_budget ? `<span class="tag">💰 ${esc(l.ad_budget)}</span>` : ''}
+            </div>
+          </div>
+          <dl>
+            <dt>Negocio</dt><dd>${esc(l.business || '—')}</dd>
+            <dt>Objetivo</dt><dd>${esc(l.goal || '—')}</dd>
+            <dt>Situación</dt><dd>${esc(l.timeline || '—')}</dd>
+            ${l.message ? `<dt>Mensaje</dt><dd>${esc(l.message)}</dd>` : ''}
+            <dt>Origen</dt><dd>${esc(origin)}</dd>
+            <dt>Formulario</dt><dd>${esc(l.source || '—')}</dd>
+          </dl>
+          <div class="side">
+            <select data-status>${statuses.map((s) => `<option value="${s}" ${s === l.status ? 'selected' : ''}>${LABELS[s] || s}</option>`).join('')}</select>
+            <textarea data-notes placeholder="Notas internas…">${esc(l.notes || '')}</textarea>
+            <div class="row">
+              <a class="btn btn--wa" target="_blank" rel="noopener" href="https://wa.me/${waNumber(l.whatsapp)}?text=${encodeURIComponent('¡Hola ' + l.name + '! Soy Paolo de PAO Marketing Digital. Recibí tu consulta por el diagnóstico de tráfico pago.')}">WhatsApp</a>
+              <button class="btn" data-save>Guardar notas</button>
+              <button class="btn btn--danger" data-del>Eliminar</button>
+            </div>
+            <span class="saved"></span>
+          </div>
+        </article>`;
+      }).join('');
+    }
+
+    $('#list').addEventListener('change', async (e) => {
+      if (!e.target.matches('[data-status]')) return;
+      const card = e.target.closest('.lead');
+      await api('/api/admin/leads/' + card.dataset.id, { method: 'PATCH', body: JSON.stringify({ status: e.target.value }) });
+      load();
+    });
+    $('#list').addEventListener('click', async (e) => {
+      const card = e.target.closest('.lead');
+      if (!card) return;
+      if (e.target.matches('[data-save]')) {
+        await api('/api/admin/leads/' + card.dataset.id, { method: 'PATCH', body: JSON.stringify({ notes: card.querySelector('[data-notes]').value }) });
+        card.querySelector('.saved').textContent = 'Notas guardadas ✓';
+      }
+      if (e.target.matches('[data-del]') && confirm('¿Eliminar este lead definitivamente?')) {
+        await api('/api/admin/leads/' + card.dataset.id, { method: 'DELETE' });
+        load();
+      }
+    });
+    let t;
+    $('#q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 300); });
+    $('#reload').onclick = load;
+    load().catch((err) => { $('#list').innerHTML = `<p class="empty">No se pudo cargar: ${esc(err.message)}</p>`; });
+  })();
+  </script>
+</body>
+</html>

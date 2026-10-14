@@ -1,0 +1,4 @@
+ACCESO-CRM-PRIVADO.txt
+node_modules/
+.wrangler/
+.dev.vars

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "mi-landing-page",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-12",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    // El Worker revisa primero estas rutas (API y panel protegido)
+    "run_worker_first": ["/api/*", "/admin", "/admin/*"]
+  },
+  // La base de datos se crea sola en el primer deploy (aprovisionamiento automático)
+  "d1_databases": [{ "binding": "DB", "database_name": "pao-crm-leads" }],
+  "vars": {
+    // Número de WhatsApp en formato internacional, solo dígitos
+    "WHATSAPP_NUMBER": "555399845353",
+    "ADMIN_USER": "paolo",
+    // SHA-256 de la contraseña del panel (la contraseña está en ACCESO-CRM-PRIVADO.txt, fuera de Git)
+    "ADMIN_PASSWORD_HASH": "1b03984361dc3420756a4918838dd10ee171f3b4231a010ddd0fe8cf9a06dc39"
+  },
+  "observability": { "enabled": true }
+}
