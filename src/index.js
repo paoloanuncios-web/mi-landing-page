@@ -1,12 +1,18 @@
-// PAO Marketing Digital — landing de tráfico pago + mini CRM de leads.
+// PAO Marketing Digital — landing de tráfico pago + CRM de leads.
 // Rutas:
-//   POST /api/leads                 → guarda un lead y devuelve el link de WhatsApp
+//   POST /api/leads                 → guarda un lead, lo califica (A/B/C) y devuelve el link de WhatsApp
 //   /admin, /api/admin/*            → panel CRM (protegido con usuario y contraseña)
 //   todo lo demás                   → archivos estáticos de /public
 
-const STATUSES = ['nuevo', 'contactado', 'reunion', 'propuesta', 'cliente', 'perdido'];
+// Etapas del embudo, en orden
+const STATUSES = [
+  'nuevo', 'contactado', 'call_agendada', 'call_realizada', 'propuesta',
+  'seguimiento', 'ganado', 'perdido', 'no_califica',
+];
+const GRADES = ['A', 'B', 'C'];
 
-const SCHEMA = [
+// Base inicial (primera versión)
+const BASE_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -27,9 +33,29 @@ const SCHEMA = [
     status TEXT NOT NULL DEFAULT 'nuevo',
     notes TEXT
   )`,
+  `CREATE TABLE IF NOT EXISTS lead_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    type TEXT NOT NULL,
+    detail TEXT
+  )`,
   `CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status)`,
   `CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_lead ON lead_events(lead_id)`,
 ];
+
+// Columnas agregadas en la versión CRM
+const EXTRA_COLUMNS = {
+  grade: 'TEXT',
+  suggested_plan: 'TEXT',
+  deal_value: 'INTEGER',
+  next_followup_at: 'TEXT',
+  call_at: 'TEXT',
+  lost_reason: 'TEXT',
+  stage_changed_at: 'TEXT',
+  first_contact_at: 'TEXT',
+};
 
 // Campos que acepta el formulario y su largo máximo
 const LEAD_FIELDS = {
@@ -39,10 +65,59 @@ const LEAD_FIELDS = {
   gclid: 300, fbclid: 300, landing_url: 500, referrer: 500,
 };
 
+// ---------- Calificación A/B/C según los planes ----------
+// Planes: Inicial $250.000 · Pyme $450.000 · Empresa $750.000 (ARS por mes)
+const PLAN_VALUES = { Inicial: 250000, Pyme: 450000, Empresa: 750000 };
+
+function budgetTier(budget = '') {
+  if (budget.startsWith('Más de')) return 'alto';
+  if (budget.startsWith('Entre')) return 'medio';
+  if (budget.startsWith('Menos de')) return 'bajo';
+  return 'sin_definir';
+}
+
+function urgencyTier(timeline = '') {
+  if (timeline.startsWith('Quiero arrancar')) return 'ya';
+  if (timeline.startsWith('Evaluando')) return 'semanas';
+  return 'sin_apuro';
+}
+
+function qualify(lead) {
+  const b = budgetTier(lead.ad_budget || '');
+  const u = urgencyTier(lead.timeline || '');
+  const ready = u === 'ya' || u === 'semanas';
+  let grade = 'C';
+  if (b === 'alto' && ready) grade = 'A';
+  else if ((b === 'medio' && ready) || b === 'alto') grade = 'B';
+  const plan = { alto: 'Pyme', medio: 'Inicial', bajo: 'Mentoría', sin_definir: 'A definir en la call' }[b];
+  return { grade, suggested_plan: plan, deal_value: PLAN_VALUES[plan] || null };
+}
+
+// ---------- Utilidades ----------
 let schemaReady = false;
 async function ensureSchema(env) {
   if (schemaReady) return;
-  await env.DB.batch(SCHEMA.map((sql) => env.DB.prepare(sql)));
+  await env.DB.batch(BASE_SCHEMA.map((sql) => env.DB.prepare(sql)));
+  const { results } = await env.DB.prepare('PRAGMA table_info(leads)').all();
+  const existing = new Set(results.map((c) => c.name));
+  const missing = Object.entries(EXTRA_COLUMNS).filter(([col]) => !existing.has(col));
+  if (missing.length) {
+    await env.DB.batch(missing.map(([col, type]) => env.DB.prepare(`ALTER TABLE leads ADD COLUMN ${col} ${type}`)));
+  }
+  // Etapas de la primera versión → etapas nuevas
+  await env.DB.batch([
+    env.DB.prepare("UPDATE leads SET status = 'call_agendada' WHERE status = 'reunion'"),
+    env.DB.prepare("UPDATE leads SET status = 'ganado' WHERE status = 'cliente'"),
+  ]);
+  // Calificar los leads que todavía no tienen nota
+  const { results: ungraded } = await env.DB.prepare('SELECT id, ad_budget, timeline FROM leads WHERE grade IS NULL').all();
+  if (ungraded.length) {
+    await env.DB.batch(ungraded.map((l) => {
+      const q = qualify(l);
+      return env.DB.prepare('UPDATE leads SET grade = ?, suggested_plan = ?, deal_value = COALESCE(deal_value, ?) WHERE id = ?')
+        .bind(q.grade, q.suggested_plan, q.deal_value, l.id);
+    }));
+  }
   schemaReady = true;
 }
 
@@ -58,6 +133,9 @@ function clean(value, max) {
   return s === '' ? null : s;
 }
 
+const logEvent = (env, leadId, type, detail) =>
+  env.DB.prepare('INSERT INTO lead_events (lead_id, type, detail) VALUES (?, ?, ?)').bind(leadId, type, detail);
+
 function buildWhatsAppUrl(env, lead) {
   const lines = [
     `¡Hola Paolo! Soy ${lead.name}.`,
@@ -70,6 +148,7 @@ function buildWhatsAppUrl(env, lead) {
   return `https://wa.me/${env.WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join('\n'))}`;
 }
 
+// ---------- Alta de leads desde la landing ----------
 async function createLead(request, env) {
   let body;
   try {
@@ -89,16 +168,17 @@ async function createLead(request, env) {
   if (!lead.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email)) return json({ ok: false, error: 'Revisá tu email' }, 400);
 
   await ensureSchema(env);
-  const cols = Object.keys(LEAD_FIELDS);
+  Object.assign(lead, qualify(lead));
+  const cols = [...Object.keys(LEAD_FIELDS), 'grade', 'suggested_plan', 'deal_value'];
   const { meta } = await env.DB.prepare(
-    `INSERT INTO leads (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
+    `INSERT INTO leads (${cols.join(', ')}, stage_changed_at) VALUES (${cols.map(() => '?').join(', ')}, datetime('now'))`
   ).bind(...cols.map((c) => lead[c])).run();
+  await logEvent(env, meta.last_row_id, 'creado', `Lead ${lead.grade} desde ${lead.source || 'la web'} · plan sugerido: ${lead.suggested_plan}`).run();
 
   return json({ ok: true, id: meta.last_row_id, whatsapp_url: buildWhatsAppUrl(env, lead) });
 }
 
 // ---------- Panel CRM ----------
-
 async function sha256Hex(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -139,25 +219,75 @@ function csvCell(v) {
   return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+const STATUS_LABELS = {
+  nuevo: 'Nuevo', contactado: 'Contactado', call_agendada: 'Call agendada', call_realizada: 'Call realizada',
+  propuesta: 'Propuesta enviada', seguimiento: 'Seguimiento', ganado: 'Cliente ganado', perdido: 'Perdido', no_califica: 'No califica',
+};
+
+// Datos editables desde el panel: [columna, largo máximo o tipo]
+const EDITABLE = {
+  notes: 4000, next_followup_at: 20, call_at: 20, lost_reason: 200, suggested_plan: 60,
+};
+
+async function updateLead(env, id, body) {
+  const { results } = await env.DB.prepare('SELECT * FROM leads WHERE id = ?').bind(id).all();
+  const lead = results[0];
+  if (!lead) return json({ ok: false, error: 'Lead no encontrado' }, 404);
+
+  const sets = [];
+  const params = [];
+  const events = [];
+
+  if (body.status !== undefined && body.status !== lead.status) {
+    if (!STATUSES.includes(body.status)) return json({ ok: false, error: 'Etapa inválida' }, 400);
+    sets.push('status = ?', "stage_changed_at = datetime('now')");
+    params.push(body.status);
+    if (!lead.first_contact_at && lead.status === 'nuevo') sets.push("first_contact_at = datetime('now')");
+    events.push(['etapa', `${STATUS_LABELS[lead.status] || lead.status} → ${STATUS_LABELS[body.status]}`]);
+  }
+  if (body.grade !== undefined && body.grade !== lead.grade) {
+    if (!GRADES.includes(body.grade)) return json({ ok: false, error: 'Calificación inválida' }, 400);
+    sets.push('grade = ?');
+    params.push(body.grade);
+    events.push(['calificacion', `Calificación cambiada de ${lead.grade || '—'} a ${body.grade}`]);
+  }
+  if (body.deal_value !== undefined) {
+    const v = body.deal_value === '' || body.deal_value === null ? null : Math.max(0, Math.round(Number(body.deal_value)));
+    if (v !== null && !Number.isFinite(v)) return json({ ok: false, error: 'Valor inválido' }, 400);
+    if (v !== lead.deal_value) {
+      sets.push('deal_value = ?');
+      params.push(v);
+      events.push(['valor', `Valor del negocio: ${v === null ? '—' : '$' + v.toLocaleString('es-AR')}`]);
+    }
+  }
+  for (const [col, max] of Object.entries(EDITABLE)) {
+    if (body[col] === undefined) continue;
+    const v = clean(body[col], max);
+    if (v === lead[col]) continue;
+    sets.push(`${col} = ?`);
+    params.push(v);
+    if (col === 'call_at') events.push(['call', v ? `Call agendada para ${v.replace('T', ' ')}` : 'Call desagendada']);
+    if (col === 'next_followup_at') events.push(['seguimiento', v ? `Próximo seguimiento: ${v.replace('T', ' ')}` : 'Seguimiento quitado']);
+    if (col === 'lost_reason' && v) events.push(['perdida', `Motivo: ${v}`]);
+    if (col === 'suggested_plan') events.push(['plan', `Plan: ${v || '—'}`]);
+  }
+  if (!sets.length) return json({ ok: true, unchanged: true });
+
+  sets.push("updated_at = datetime('now')");
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE leads SET ${sets.join(', ')} WHERE id = ?`).bind(...params, id),
+    ...events.map(([type, detail]) => logEvent(env, id, type, detail)),
+  ]);
+  return json({ ok: true });
+}
+
 async function handleAdminApi(request, env, url) {
   await ensureSchema(env);
   const path = url.pathname.replace(/\/+$/, '');
 
   if (path === '/api/admin/leads' && request.method === 'GET') {
-    const status = url.searchParams.get('status');
-    const q = url.searchParams.get('q');
-    const where = [];
-    const params = [];
-    if (status && STATUSES.includes(status)) { where.push('status = ?'); params.push(status); }
-    if (q) {
-      where.push('(name LIKE ? OR whatsapp LIKE ? OR email LIKE ? OR business LIKE ? OR notes LIKE ?)');
-      const like = `%${q}%`;
-      params.push(like, like, like, like, like);
-    }
-    const sql = `SELECT * FROM leads ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY created_at DESC, id DESC LIMIT 1000`;
-    const { results } = await env.DB.prepare(sql).bind(...params).all();
-    const { results: counts } = await env.DB.prepare('SELECT status, COUNT(*) AS n FROM leads GROUP BY status').all();
-    return json({ ok: true, leads: results, counts, statuses: STATUSES });
+    const { results } = await env.DB.prepare('SELECT * FROM leads ORDER BY created_at DESC, id DESC LIMIT 5000').all();
+    return json({ ok: true, leads: results, statuses: STATUSES, grades: GRADES });
   }
 
   if (path === '/api/admin/leads.csv' && request.method === 'GET') {
@@ -173,26 +303,36 @@ async function handleAdminApi(request, env, url) {
     });
   }
 
-  const match = path.match(/^\/api\/admin\/leads\/(\d+)$/);
+  const match = path.match(/^\/api\/admin\/leads\/(\d+)(\/events)?$/);
   if (match) {
     const id = Number(match[1]);
-    if (request.method === 'PATCH') {
-      const body = await request.json().catch(() => ({}));
-      const sets = [];
-      const params = [];
-      if (body.status !== undefined) {
-        if (!STATUSES.includes(body.status)) return json({ ok: false, error: 'Estado inválido' }, 400);
-        sets.push('status = ?'); params.push(body.status);
+    if (match[2]) {
+      if (request.method === 'GET') {
+        const { results } = await env.DB.prepare('SELECT * FROM lead_events WHERE lead_id = ? ORDER BY created_at DESC, id DESC').bind(id).all();
+        return json({ ok: true, events: results });
       }
-      if (body.notes !== undefined) { sets.push('notes = ?'); params.push(clean(body.notes, 4000)); }
-      if (!sets.length) return json({ ok: false, error: 'Nada para actualizar' }, 400);
-      sets.push("updated_at = datetime('now')");
-      await env.DB.prepare(`UPDATE leads SET ${sets.join(', ')} WHERE id = ?`).bind(...params, id).run();
-      return json({ ok: true });
-    }
-    if (request.method === 'DELETE') {
-      await env.DB.prepare('DELETE FROM leads WHERE id = ?').bind(id).run();
-      return json({ ok: true });
+      if (request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const detail = clean(body.detail, 2000);
+        if (!detail) return json({ ok: false, error: 'Escribí la nota' }, 400);
+        await env.DB.batch([
+          logEvent(env, id, 'nota', detail),
+          env.DB.prepare("UPDATE leads SET updated_at = datetime('now') WHERE id = ?").bind(id),
+        ]);
+        return json({ ok: true });
+      }
+    } else {
+      if (request.method === 'PATCH') {
+        const body = await request.json().catch(() => ({}));
+        return updateLead(env, id, body);
+      }
+      if (request.method === 'DELETE') {
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM lead_events WHERE lead_id = ?').bind(id),
+          env.DB.prepare('DELETE FROM leads WHERE id = ?').bind(id),
+        ]);
+        return json({ ok: true });
+      }
     }
   }
 
@@ -212,7 +352,8 @@ export default {
       if (url.pathname === '/admin' || url.pathname.startsWith('/admin/') || url.pathname.startsWith('/api/admin/')) {
         if (!(await isAuthorized(request, env))) return unauthorized();
         if (url.pathname.startsWith('/api/admin/')) return await handleAdminApi(request, env, url);
-        const res = await env.ASSETS.fetch(new Request(new URL('/admin/', url), request));
+        const isPage = url.pathname === '/admin' || url.pathname === '/admin/';
+        const res = await env.ASSETS.fetch(isPage ? new Request(new URL('/admin/', url), request) : request);
         const headers = new Headers(res.headers);
         headers.set('cache-control', 'no-store');
         headers.set('x-robots-tag', 'noindex');
