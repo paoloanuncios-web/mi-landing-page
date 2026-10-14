@@ -13,7 +13,7 @@ while ($l.IsListening) {
     if ($path -eq '/api/leads' -and $req.HttpMethod -eq 'POST') {
       $body = (New-Object IO.StreamReader($req.InputStream)).ReadToEnd()
       Write-Host "LEAD (simulado): $body"
-      $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":true,"id":0,"whatsapp_url":"https://wa.me/555399845353?text=prueba"}')
+      $bytes = [Text.Encoding]::UTF8.GetBytes('{"ok":true,"id":0,"whatsapp_url":"https://wa.me/5491150611200?text=prueba"}')
       $res.ContentType = 'application/json'
     } else {
       if ($path.EndsWith('/')) { $path += 'index.html' }
