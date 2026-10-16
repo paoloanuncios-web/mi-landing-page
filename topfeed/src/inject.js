@@ -10,7 +10,7 @@
 
   const TAG = '__topfeed_pro__';
   const MAX = 25 * 1024 * 1024;
-  const URL_RE = /(\/graphql|\/api\/|\/ajax\/bulk-route-definitions|\/ajax\/navigation)/;
+  const URL_RE = /(\/graphql|\/api\/|\/youtubei\/|\/ajax\/bulk-route-definitions|\/ajax\/navigation)/;
 
   function wanted(url) {
     try { return URL_RE.test(new URL(url, location.href).pathname); } catch (e) { return false; }
@@ -58,4 +58,33 @@
     } catch (e) { /* ignorar */ }
     return origOpen.apply(this, arguments);
   };
+
+  // YouTube: completar likes, fecha exacta y vistas exactas pidiendo cada video a la API interna
+  // (/youtubei/v1/player). La respuesta pasa por el fetch de arriba y llega sola al content script.
+  window.addEventListener('message', async (e) => {
+    if (e.source !== window || !e.data || e.data.source !== TAG + '_cmd' || e.data.cmd !== 'yt-enrich') return;
+    const cfg = window.ytcfg;
+    const ctx = cfg && cfg.get && cfg.get('INNERTUBE_CONTEXT');
+    const key = cfg && cfg.get && cfg.get('INNERTUBE_API_KEY');
+    const ids = (e.data.ids || []).slice(0, 1000);
+    const report = (done, error) => window.postMessage({ source: TAG + '_progress', done, total: ids.length, error: error || null }, location.origin);
+    if (!ctx) return report(0, 'No encontré la configuración de YouTube. Recargá la página.');
+    let next = 0, done = 0;
+    async function worker() {
+      while (next < ids.length) {
+        const id = ids[next++];
+        try {
+          await window.fetch('/youtubei/v1/player?prettyPrint=false' + (key ? '&key=' + encodeURIComponent(key) : ''), {
+            method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ context: ctx, videoId: id, contentCheckOk: true, racyCheckOk: true })
+          }).then((r) => r.text());
+        } catch (err) { /* un video que falla no frena el resto */ }
+        done++;
+        if (done % 5 === 0 || done === ids.length) report(done);
+        await new Promise((r) => setTimeout(r, 120 + Math.random() * 200));
+      }
+    }
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    report(ids.length);
+  });
 })();

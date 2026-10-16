@@ -173,6 +173,20 @@ async function aiAndTranscribe(ctx) {
   const tx = await pg.textContent('#topfeed-pro-root >> .modal .c');
   if (tx !== 'hola mundo transcripto' || !sttReq || sttReq.headers.authorization !== 'Bearer sk-test' || sttReq.size < 100) throw new Error('Transcripción: falló el circuito');
   console.log('  Transcripción: video bajado (' + sttReq.size + ' bytes enviados) y texto mostrado');
+  await pg.click('#topfeed-pro-root >> [data-act="modal-close"]');
+  if (!(await pg.locator('#topfeed-pro-root >> [data-act="show-tx"]').count())) throw new Error('Transcripción: la tarjeta no quedó marcada');
+  await pg.click('#topfeed-pro-root >> [data-menu-id="export"]');
+  const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#topfeed-pro-root >> [data-fmt="csv"]')]);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  if (!csv.includes('Transcripción') || !csv.includes('hola mundo transcripto')) throw new Error('Exportación: falta la transcripción');
+  console.log('  Exportar + transcripciones: OK');
+  await pg.locator('#topfeed-pro-root >> .card:has([data-act="show-tx"]) [data-act="play"]').first().click();
+  await pg.waitForSelector('#topfeed-pro-root >> .modal video.player');
+  await pg.click('#topfeed-pro-root >> [data-act="modal-close"]');
+  await pg.click('#topfeed-pro-root >> .status [data-act="sel-all"]');
+  const n = await pg.locator('#topfeed-pro-root >> .card.sel').count();
+  if (n < 12) throw new Error('Seleccionar todos: ' + n);
+  console.log('  Reproductor y seleccionar todos (' + n + '): OK');
   await pg.close();
 }
 

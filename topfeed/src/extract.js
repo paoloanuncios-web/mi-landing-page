@@ -331,6 +331,164 @@
     };
   }
 
+
+  // ---------- YouTube ----------
+
+  // "hace 3 semanas", "2 days ago", "Transmitido hace 5 horas" → fecha aproximada (ms).
+  const REL_UNITS = [
+    [/seg|sec/, 1e3], [/min/, 6e4], [/hora|hour/, 36e5], [/d[ií]a|day/, 864e5],
+    [/semana|week/, 6048e5], [/mes|month/, 2592e6], [/a[ñn]o|year/, 31536e6]
+  ];
+  function relDate(text, now) {
+    if (!text) return null;
+    const m = String(text).toLowerCase().match(/(\d+)\s*([a-záéíóúñ]+)/);
+    if (!m) return null;
+    for (const [re, ms] of REL_UNITS) if (re.test(m[2])) return (now || Date.now()) - Number(m[1]) * ms;
+    return null;
+  }
+
+  // "249 k", "1,2 M de vistas", "45 mil vistas", "1.2M views" → número
+  function ytCount(text) {
+    if (!text) return null;
+    const t = String(text).toLowerCase()
+      .replace(/(visualizaciones|reproducciones|vistas|views|view|suscriptores|subscribers|videos|vídeos|de|of)/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+    return parseCount(t);
+  }
+
+  function hms(text) {
+    if (!text || !/^\d+(:\d+){1,2}$/.test(String(text).trim())) return null;
+    return String(text).trim().split(':').reduce((acc, n) => acc * 60 + Number(n), 0);
+  }
+
+  function ytBest(sources) {
+    if (!Array.isArray(sources) || !sources.length) return null;
+    return sources.slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0].url || null;
+  }
+
+  function ytIsLockup(o) {
+    return isObj(o.lockupViewModel) && o.lockupViewModel.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO';
+  }
+
+  function ytLockup(o) {
+    const l = o.lockupViewModel;
+    const meta = (l.metadata && l.metadata.lockupMetadataViewModel) || {};
+    const rows = (meta.metadata && meta.metadata.contentMetadataViewModel && meta.metadata.contentMetadataViewModel.metadataRows) || [];
+    let views = null, date = null, author = null, live = false;
+    rows.forEach((row) => (row.metadataParts || []).forEach((part) => {
+      const txt = (part.text && part.text.content) || '';
+      const label = (part.accessibilityLabel || txt).toLowerCase();
+      if (/vista|view|visualiz|reproduc|watching|mirando/.test(label)) {
+        views = ytCount(txt) != null ? ytCount(txt) : ytCount(label);
+        if (/watching|mirando|espectador/.test(label)) live = true;
+      } else if (/hace|ago|transmit|streamed|estrenado|premiered/.test(label)) {
+        date = relDate(part.accessibilityLabel || txt);
+      } else if (!author && txt && !/\d/.test(txt)) {
+        author = txt.replace(/^@/, '');
+      }
+    }));
+    const img = l.contentImage && l.contentImage.thumbnailViewModel;
+    let duration = null;
+    ((img && img.overlays) || []).forEach((ov) => {
+      const badges = (ov.thumbnailBottomOverlayViewModel && ov.thumbnailBottomOverlayViewModel.badges) || [];
+      badges.forEach((b) => {
+        const t = b.thumbnailBadgeViewModel && b.thumbnailBadgeViewModel.text;
+        if (hms(t) != null) duration = hms(t);
+        else if (t && /vivo|live/i.test(t)) live = true;
+      });
+    });
+    return {
+      platform: 'youtube', id: String(l.contentId), url: 'https://www.youtube.com/watch?v=' + l.contentId,
+      author: author, caption: (meta.title && meta.title.content) || '', date: date, approxDate: date != null,
+      type: live ? 'vivo' : 'video', views: views, likes: null, comments: null, shares: null, saves: null,
+      duration: duration, thumb: ytBest(img && img.image && img.image.sources), video: null,
+      music: null, pinned: false, followers: null
+    };
+  }
+
+  function ytIsShort(o) {
+    return isObj(o.shortsLockupViewModel);
+  }
+
+  function ytShort(o) {
+    const s = o.shortsLockupViewModel;
+    const ep = s.onTap && s.onTap.innertubeCommand && s.onTap.innertubeCommand.reelWatchEndpoint;
+    const id = (ep && ep.videoId) || String(s.entityId || '').replace(/^shorts-shelf-item-/, '');
+    const om = s.overlayMetadata || {};
+    const tv = s.thumbnailViewModel && s.thumbnailViewModel.thumbnailViewModel;
+    return {
+      platform: 'youtube', id: id, url: 'https://www.youtube.com/shorts/' + id, author: null,
+      caption: (om.primaryText && om.primaryText.content) || '', date: null, type: 'short',
+      views: ytCount(om.secondaryText && om.secondaryText.content), likes: null, comments: null, shares: null,
+      saves: null, duration: null, thumb: ytBest(tv && tv.image && tv.image.sources), video: null,
+      music: null, pinned: false, followers: null
+    };
+  }
+
+  function ytIsVideoRenderer(o) {
+    return isObj(o.videoRenderer) && o.videoRenderer.videoId;
+  }
+
+  function ytVideoRenderer(o) {
+    const v = o.videoRenderer;
+    const txt = (x) => (x ? x.simpleText || (x.runs || []).map((r) => r.text).join('') : '');
+    const owner = v.ownerText || v.longBylineText;
+    return {
+      platform: 'youtube', id: v.videoId, url: 'https://www.youtube.com/watch?v=' + v.videoId,
+      author: txt(owner) || null, caption: txt(v.title), date: relDate(txt(v.publishedTimeText)),
+      approxDate: true, type: 'video', views: ytCount(txt(v.viewCountText)), likes: null, comments: null,
+      shares: null, saves: null, duration: hms(txt(v.lengthText)),
+      thumb: ytBest(v.thumbnail && v.thumbnail.thumbnails), video: null, music: null, pinned: false, followers: null
+    };
+  }
+
+  // Respuesta de /youtubei/v1/player: datos exactos de un video (likes, fecha, vistas).
+  function ytIsPlayer(o) {
+    return isObj(o.videoDetails) && o.videoDetails.videoId && isObj(o.microformat) &&
+      isObj(o.microformat.playerMicroformatRenderer);
+  }
+
+  function ytPlayer(o) {
+    const vd = o.videoDetails, mf = o.microformat.playerMicroformatRenderer;
+    const iso = mf.publishDate || mf.uploadDate || null;
+    const handle = (String(mf.ownerProfileUrl || '').match(/@([^/?#]+)/) || [])[1];
+    const desc = (mf.description && mf.description.simpleText) || vd.shortDescription || '';
+    const title = vd.title || (mf.title && mf.title.simpleText) || '';
+    return {
+      platform: 'youtube', id: vd.videoId, url: 'https://www.youtube.com/watch?v=' + vd.videoId,
+      author: handle ? decodeURIComponent(handle) : (mf.ownerChannelName || vd.author || null),
+      caption: title + (desc ? '\n\n' + desc : ''), date: iso ? Date.parse(iso) : null, approxDate: false,
+      type: vd.isLiveContent && mf.liveBroadcastDetails && mf.liveBroadcastDetails.isLiveNow ? 'vivo' : 'video',
+      views: parseCount(mf.viewCount != null ? mf.viewCount : vd.viewCount), likes: parseCount(mf.likeCount),
+      comments: null, shares: null, saves: null, duration: parseCount(mf.lengthSeconds || vd.lengthSeconds),
+      thumb: ytBest(vd.thumbnail && vd.thumbnail.thumbnails), video: null, music: null, pinned: false,
+      followers: null, exact: true
+    };
+  }
+
+  function ytIsHeader(o) {
+    return isObj(o.pageHeaderViewModel) && o.pageHeaderViewModel.metadata;
+  }
+
+  function ytHeader(o) {
+    const h = o.pageHeaderViewModel;
+    const rows = (h.metadata.contentMetadataViewModel && h.metadata.contentMetadataViewModel.metadataRows) || [];
+    let handle = null, subs = null, videos = null;
+    rows.forEach((row) => (row.metadataParts || []).forEach((part) => {
+      const t = (part.text && part.text.content) || '';
+      if (t[0] === '@') handle = t.slice(1);
+      else if (/suscript|subscriber/i.test(t)) subs = ytCount(t);
+      else if (/video/i.test(t)) videos = ytCount(t);
+    }));
+    const title = h.title && h.title.dynamicTextViewModel && h.title.dynamicTextViewModel.text;
+    const av = h.image && h.image.decoratedAvatarViewModel && h.image.decoratedAvatarViewModel.avatar &&
+      h.image.decoratedAvatarViewModel.avatar.avatarViewModel;
+    return {
+      platform: 'youtube', handle: handle, name: (title && title.content) || null, followers: subs, posts: videos,
+      avatar: ytBest(av && av.image && av.image.sources), verified: false
+    };
+  }
+
   // ---------- Store ----------
 
   const NUM_FIELDS = ['views', 'likes', 'comments', 'shares', 'saves', 'duration', 'followers'];
@@ -354,11 +512,16 @@
       this.items.set(key, it);
     } else {
       for (const k of NUM_FIELDS) {
-        if (it[k] != null && (prev[k] == null || it[k] > prev[k])) prev[k] = it[k];
+        // Un dato exacto (ej. API de YouTube) reemplaza al redondeado ("1,2 M").
+        if (it[k] != null && (prev[k] == null || it[k] > prev[k] || it.exact)) prev[k] = it[k];
       }
       for (const k of ['url', 'author', 'date', 'music']) if (prev[k] == null && it[k] != null) prev[k] = it[k];
+      if (it.date && it.approxDate === false && prev.approxDate) { prev.date = it.date; prev.approxDate = false; }
+      if (it.exact) prev.exact = true;
       for (const k of ['thumb', 'video']) if (it[k]) prev[k] = it[k]; // las URLs firmadas vencen: usar la más nueva
-      if (!prev.caption && it.caption) { prev.caption = it.caption; prev.hashtags = hashtagsOf(it.caption); }
+      if (it.caption && (!prev.caption || (it.exact && it.caption.length > prev.caption.length))) {
+        prev.caption = it.caption; prev.hashtags = hashtagsOf(it.caption);
+      }
       if (prev.type === 'texto' || (prev.type === 'foto' && it.type !== 'texto')) prev.type = it.type;
       prev.pinned = prev.pinned || it.pinned;
     }
@@ -398,6 +561,13 @@
         if (platform === 'tiktok' || !platform) {
           if (ttIsItem(o)) store.add(ttItem(o));
           else if (ttIsProfile(o)) store.addProfile(ttProfile(o));
+        }
+        if (platform === 'youtube' || !platform) {
+          if (ytIsPlayer(o)) store.add(ytPlayer(o));
+          else if (ytIsLockup(o)) store.add(ytLockup(o));
+          else if (ytIsShort(o)) store.add(ytShort(o));
+          else if (ytIsVideoRenderer(o)) store.add(ytVideoRenderer(o));
+          else if (ytIsHeader(o)) store.addProfile(ytHeader(o));
         }
         if (platform === 'facebook' || !platform) {
           if (fbIsStory(o)) {
@@ -449,6 +619,7 @@
     if (/instagram\.com$/.test(host)) return 'instagram';
     if (/tiktok\.com$/.test(host)) return 'tiktok';
     if (/facebook\.com$/.test(host)) return 'facebook';
+    if (/youtube\.com$/.test(host)) return 'youtube';
     return null;
   }
 
@@ -459,6 +630,11 @@
       const at = p.find(s => s[0] === '@');
       return at ? decodeURIComponent(at.slice(1)) : null;
     }
+    if (platform === 'youtube') {
+      if (p[0] && p[0][0] === '@') return decodeURIComponent(p[0].slice(1));
+      if (p[0] === 'c' || p[0] === 'user') return p[1] ? decodeURIComponent(p[1]) : null;
+      return null;
+    }
     if (platform === 'facebook') {
       const fbReserved = ['watch', 'reel', 'reels', 'groups', 'events', 'marketplace', 'gaming', 'profile.php', 'pages',
         'search', 'stories', 'photo', 'photo.php', 'story.php', 'permalink.php', 'login', 'friends', 'messages', 'notifications', 'share'];
@@ -466,14 +642,15 @@
     }
     if (platform === 'instagram') {
       const reserved = ['explore', 'reels', 'reel', 'p', 'stories', 'direct', 'accounts', 'tv', 'about', 'legal', 'web'];
+      if (p[1] === 'saved' || p[1] === 'tagged') return null; // guardados y etiquetados son de otras cuentas
       return p[0] && reserved.indexOf(p[0]) === -1 ? decodeURIComponent(p[0]) : null;
     }
     return null;
   }
 
   const api = {
-    parseCount, toMs, hashtagsOf, walk, scanFields, Store, ingestJSON, ingestText, platformOf, profileFromUrl,
-    _ig: { igIsMedia, igMedia, igIsProfile }, _tt: { ttIsItem, ttItem, ttIsProfile }, _fb: { fbIsStory, fbIsVideo }
+    parseCount, toMs, relDate, ytCount, hashtagsOf, walk, scanFields, Store, ingestJSON, ingestText, platformOf, profileFromUrl,
+    _ig: { igIsMedia, igMedia, igIsProfile }, _tt: { ttIsItem, ttItem, ttIsProfile }, _fb: { fbIsStory, fbIsVideo }, _yt: { ytIsLockup, ytLockup, ytIsShort, ytShort, ytHeader, ytIsPlayer, ytPlayer }
   };
   root.TFExtract = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

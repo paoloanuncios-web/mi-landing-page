@@ -31,9 +31,11 @@
     const baseLikes = median(items.map(i => i.likes));
     for (const it of items) {
       it.interactions = interactions(it);
-      it.er = it.views ? (it.interactions / it.views) * 100 : null;
+      // Sin likes/comentarios/compartidos/guardados (ej. listas de YouTube) no hay engagement que calcular.
+      const hasEng = it.likes != null || it.comments != null || it.shares != null || it.saves != null;
+      it.er = it.views && hasEng ? (it.interactions / it.views) * 100 : null;
       const f = followers || it.followers;
-      it.erFollowers = f ? (((it.likes || 0) + (it.comments || 0)) / f) * 100 : null;
+      it.erFollowers = f && (it.likes != null || it.comments != null) ? (((it.likes || 0) + (it.comments || 0)) / f) * 100 : null;
       if (it.views != null && baseViews) it.outlier = it.views / baseViews;
       else if (it.likes != null && baseLikes) it.outlier = it.likes / baseLikes;
       else it.outlier = null;
@@ -135,7 +137,11 @@
     return items.some(i => i.views != null) ? (i) => i.views : (i) => i.likes;
   }
 
+  // Las fechas relativas ("hace 2 semanas") no traen hora real: no sirven para día/horario.
+  const exact = (items) => items.filter(i => !i.approxDate);
+
   function byWeekday(items) {
+    items = exact(items);
     const m = mainMetric(items);
     const rows = groupAvg(items, i => (i.date ? new Date(i.date).getDay() : null), m);
     return DAYS.map((d, idx) => {
@@ -145,6 +151,7 @@
   }
 
   function byHour(items) {
+    items = exact(items);
     const m = mainMetric(items);
     const blocks = [[0, 6, '0-6 h'], [6, 9, '6-9 h'], [9, 12, '9-12 h'], [12, 15, '12-15 h'],
       [15, 18, '15-18 h'], [18, 21, '18-21 h'], [21, 24, '21-24 h']];
@@ -217,7 +224,7 @@
 
   const COLUMNS = [
     ['Red', i => i.platform], ['Usuario', i => i.author], ['Tipo', i => i.type],
-    ['Fecha', i => (i.date ? new Date(i.date).toISOString().slice(0, 16).replace('T', ' ') : '')],
+    ['Fecha', i => (i.date ? (i.approxDate ? '≈ ' + new Date(i.date).toISOString().slice(0, 10) : new Date(i.date).toISOString().slice(0, 16).replace('T', ' ')) : '')],
     ['Vistas', i => i.views], ['Likes', i => i.likes], ['Comentarios', i => i.comments],
     ['Compartidos', i => i.shares], ['Guardados', i => i.saves], ['Interacciones', i => i.interactions],
     ['ER % (vistas)', i => (i.er != null ? +i.er.toFixed(2) : null)],
@@ -227,6 +234,7 @@
     ['Crecimiento vistas', i => i.growthViews],
     ['Duración (s)', i => i.duration], ['Fijado', i => (i.pinned ? 'sí' : '')], ['Audio', i => i.music],
     ['Hashtags', i => (i.hashtags || []).join(' ')], ['Gancho', i => i.hook], ['Texto', i => i.caption],
+    ['Transcripción', i => i.transcript],
     ['URL', i => i.url], ['Miniatura', i => i.thumb], ['ID', i => i.id]
   ];
 
@@ -272,7 +280,7 @@
   function toJSON(items) {
     const keep = ['platform', 'id', 'url', 'author', 'type', 'date', 'views', 'likes', 'comments', 'shares', 'saves',
       'interactions', 'er', 'erFollowers', 'outlier', 'viewsPerDay', 'duration', 'pinned', 'music', 'hashtags', 'hook',
-      'caption', 'thumb', 'video'];
+      'caption', 'transcript', 'thumb', 'video'];
     return JSON.stringify(items.map(it => {
       const o = {};
       for (const k of keep) o[k] = k === 'date' && it.date ? new Date(it.date).toISOString() : (it[k] === undefined ? null : it[k]);

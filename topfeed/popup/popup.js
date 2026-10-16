@@ -5,8 +5,8 @@ document.getElementById('opts').addEventListener('click', (e) => { e.preventDefa
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-  if (!tab || !/^https:\/\/([^/]+\.)?(instagram|tiktok|facebook)\.com\//.test(tab.url || '')) {
-    app.innerHTML = '<p>Abrí <b>Instagram</b>, <b>TikTok</b> o <b>Facebook</b> en esta pestaña.</p>' +
+  if (!tab || !/^https:\/\/([^/]+\.)?(instagram|tiktok|facebook|youtube)\.com\//.test(tab.url || '')) {
+    app.innerHTML = '<p>Abrí <b>Instagram</b>, <b>TikTok</b>, <b>Facebook</b> o <b>YouTube</b> en esta pestaña.</p>' +
       '<ul><li>Entrá a un perfil o a su pestaña Reels/Videos.</li><li>Tocá el botón <b>▲ TopFeed</b> abajo a la derecha.</li></ul>';
     return;
   }

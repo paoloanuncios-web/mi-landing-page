@@ -219,6 +219,46 @@ test('Facebook: video real de la pestaña Videos de una página (capturado en oc
   assert.ok(/^https:\/\/video/.test(it.video));
 });
 
+test('YouTube: canal real (videos, Shorts y suscriptores, capturado en octubre 2026)', () => {
+  const real = require('./fixtures/youtube_channel_real.json');
+  const s = new X.Store();
+  X.ingestJSON(real, s, 'youtube');
+  const vids = s.list().filter((i) => i.type === 'video');
+  const shorts = s.list().filter((i) => i.type === 'short');
+  assert.equal(vids.length, 3);
+  assert.equal(shorts.length, 2);
+  for (const v of vids) {
+    assert.ok(v.views > 1000, 'vistas');
+    assert.ok(v.date && v.approxDate, 'fecha relativa');
+    assert.ok(v.duration > 0, 'duración');
+    assert.ok(/^https:\/\/www\.youtube\.com\/watch\?v=/.test(v.url));
+    assert.ok(/^https:\/\/i\.ytimg\.com\//.test(v.thumb));
+  }
+  for (const v of shorts) {
+    assert.ok(v.views > 1000);
+    assert.ok(/\/shorts\//.test(v.url));
+  }
+  const p = s.profileOf('youtube', 'nasa');
+  assert.equal(p.followers, 15100000);
+  assert.equal(p.posts, 6100);
+});
+
+test('YouTube: textos de vistas y fechas relativas', () => {
+  assert.equal(X.ytCount('249\u00a0k'), 249000);
+  assert.equal(X.ytCount('1,2 M de vistas'), 1200000);
+  assert.equal(X.ytCount('45 mil vistas'), 45000);
+  assert.equal(X.ytCount('1.2M views'), 1200000);
+  assert.equal(X.ytCount('15.1 M de suscriptores'), 15100000);
+  const now = Date.UTC(2026, 9, 16);
+  assert.equal(X.relDate('hace 2 semanas', now), now - 14 * 864e5);
+  assert.equal(X.relDate('3 days ago', now), now - 3 * 864e5);
+  assert.equal(X.relDate('Transmitido hace 5 horas', now), now - 5 * 36e5);
+  assert.equal(X.relDate('hace 1 mes', now), now - 30 * 864e5);
+  assert.equal(X.profileFromUrl('youtube', '/@NASA/videos'), 'NASA');
+  assert.equal(X.profileFromUrl('youtube', '/watch'), null);
+  assert.equal(X.profileFromUrl('instagram', '/pizzeria_x/saved/'), null);
+});
+
 test('profileFromUrl detecta la cuenta del perfil abierto', () => {
   assert.equal(X.profileFromUrl('instagram', '/pizzeria_x/reels/'), 'pizzeria_x');
   assert.equal(X.profileFromUrl('instagram', '/reel/ABC/'), null);
@@ -246,6 +286,13 @@ test('enrich calcula ER, outlier y gancho', () => {
   const foto = items.find((i) => i.id === '333');
   assert.equal(foto.er, null);
   assert.equal(foto.outlier, 300 / 800); // sin vistas → likes contra la mediana de likes
+});
+
+test('sin likes ni comentarios el engagement queda sin dato (no 0%)', () => {
+  const items = A.enrich([{ key: 'y:1', views: 1000, likes: null, comments: null, shares: null, saves: null }], 5000);
+  assert.equal(items[0].er, null);
+  assert.equal(items[0].erFollowers, null);
+  assert.equal(items[0].outlier, 1);
 });
 
 test('sortItems ordena y deja los vacíos al final', () => {

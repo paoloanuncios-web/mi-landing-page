@@ -12,21 +12,23 @@
   if (!platform) return;
 
   const TAG = '__topfeed_pro__';
-  const NAMES = { instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook' };
+  const NAMES = { instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook', youtube: 'YouTube' };
   const store = new X.Store();
   const fmt = A.fmt;
 
   // ---------- recolección ----------
 
   window.addEventListener('message', (e) => {
-    if (e.source !== window || !e.data || e.data.source !== TAG) return;
+    if (e.source !== window || !e.data) return;
+    if (e.data.source === TAG + '_progress') return onEnrichProgress(e.data);
+    if (e.data.source !== TAG) return;
     X.ingestText(e.data.text, store, platform);
     changed();
   });
 
-  // Facebook no repite el nombre de la página en cada video: lo completamos con la página abierta.
-  function fillFacebookAuthor() {
-    if (platform !== 'facebook') return;
+  // Facebook y YouTube no repiten la cuenta en cada video de su perfil: la completamos con la URL abierta.
+  function fillPageAuthor() {
+    if (platform !== 'facebook' && platform !== 'youtube') return;
     const page = X.profileFromUrl(platform, location.pathname);
     if (!page) return;
     for (const it of store.items.values()) if (!it.author) it.author = page;
@@ -42,6 +44,17 @@
       const t = s.textContent;
       if (t && t.length < 40e6 && DATA_RE.test(t)) X.ingestText(t, store, platform);
     });
+    if (platform === 'youtube') {
+      document.querySelectorAll('script:not([src])').forEach((s) => {
+        if (scanned.has(s)) return;
+        const t = s.textContent;
+        const i = t.indexOf('ytInitialData = ');
+        if (i === -1) return;
+        scanned.add(s);
+        const start = t.indexOf('{', i), end = t.lastIndexOf('};');
+        if (start !== -1 && end > start) X.ingestText(t.slice(start, end + 1), store, platform);
+      });
+    }
     changed();
   }
 
@@ -56,9 +69,10 @@
 
   function loadSettings() {
     try {
-      chrome.storage.local.get(['defaultSort', 'autoTarget', 'aiContext'], (s) => {
+      chrome.storage.local.get(['defaultSort', 'autoTarget', 'aiContext', 'lastSort', 'lastDir'], (s) => {
         st.settings = s || {};
         if (s && s.defaultSort) st.sort = s.defaultSort;
+        if (s && s.lastSort) { st.sort = s.lastSort; st.dir = s.lastDir || 'desc'; }
         if (s && s.aiContext) st.aiContext = s.aiContext;
       });
     } catch (e) { /* contexto de extensión invalidado */ }
@@ -95,6 +109,7 @@
   }
 
   function view() {
+    if (!st.viewing) fillPageAuthor();
     const all = source();
     const items = A.filterItems(all, st.filters);
     const prof = currentProfile();
@@ -206,7 +221,7 @@
   function changed() {
     clearTimeout(changeTimer);
     changeTimer = setTimeout(() => {
-      fillFacebookAuthor();
+      fillPageAuthor();
       if (!host) return;
       const n = countForAuthor();
       ui.count.textContent = fmt(n);
@@ -224,8 +239,13 @@
     render();
   }
 
+  function rememberSort() {
+    try { chrome.storage.local.set({ lastSort: st.sort, lastDir: st.dir }); } catch (e) { /* sin contexto */ }
+  }
+
   function render() {
     if (!host) return;
+    rememberSort();
     const top = ui.body.scrollTop;
     const v = view();
     renderHead(v);
@@ -297,7 +317,7 @@
       '<label>Ordenar ' + sel('sort', SORT_OPTS, st.sort) + '</label>' +
       '<button class="btn sm" data-act="dir" title="Cambiar orden">' + (st.dir === 'desc' ? '↓ Mayor a menor' : '↑ Menor a mayor') + '</button>' +
       '<label>Cuenta ' + sel('author', auOpts, f.author) + '</label>' +
-      '<label>Tipo ' + sel('type', [['todos', 'Todos'], ['reel', 'Reels'], ['video', 'Videos'], ['foto', 'Fotos'], ['carrusel', 'Carruseles'], ['texto', 'Texto']], f.type) + '</label>' +
+      '<label>Tipo ' + sel('type', [['todos', 'Todos'], ['reel', 'Reels'], ['video', 'Videos'], ['short', 'Shorts'], ['vivo', 'En vivo'], ['foto', 'Fotos'], ['carrusel', 'Carruseles'], ['texto', 'Texto']], f.type) + '</label>' +
       '<label>Desde <input type="date" data-set="from" value="' + esc(f.from) + '"></label>' +
       '<label>Hasta <input type="date" data-set="to" value="' + esc(f.to) + '"></label>' +
       '<label>Últimos ' + sel('lastN', [[0, 'todos'], [12, '12'], [24, '24'], [30, '30'], [50, '50'], [100, '100']], f.lastN) + '</label>' +
@@ -322,7 +342,11 @@
       '<span>Mediana <b>' + fmt(s.medianViews) + '</b></span>' +
       '<span>ER prom. <b>' + pct(s.avgER) + '</b></span>' +
       '<span>🔥 Outliers (≥2x) <b>' + s.outliers + '</b></span>' +
-      (st.selected.size ? '<span><b>' + st.selected.size + '</b> seleccionados · <a href="#" data-act="dl-selected">descargar</a> · <a href="#" data-act="sel-none">quitar selección</a></span>' : '') +
+      (st.selected.size ? '<span><b>' + st.selected.size + '</b> seleccionados · <a href="#" data-act="dl-selected">descargar</a> · <a href="#" data-act="tx-selected">transcribir</a> · <a href="#" data-act="sel-all">seleccionar todos</a> · <a href="#" data-act="sel-none">quitar selección</a></span>' : '') +
+      (!st.selected.size && v.items.length ? '<span><a href="#" data-act="sel-all">Seleccionar todos</a></span>' : '') +
+      (st.txBusy ? '<span>📝 Transcribiendo ' + st.txBusy + '…</span>' : '') +
+      (st.enrich ? '<span>📈 Completando likes y fechas ' + st.enrich.done + '/' + st.enrich.total + '…</span>' : '') +
+      (platform === 'youtube' && !st.enrich && v.items.some((i) => !i.exact) ? '<span><a href="#" data-act="yt-enrich">📈 Completar likes y fechas exactas</a></span>' : '') +
       (st.compare && !st.viewing ? '<span>Comparando con snapshot del <b>' + esc(fdate(st.compare.savedAt, true)) + '</b></span>' : '') +
       (auto ? '<span>⏳ Cargando posts… se frena solo al llegar al objetivo o al final del perfil</span>' : '');
   }
@@ -331,7 +355,8 @@
     const tips = {
       instagram: 'Abrí un perfil (o su pestaña Reels) y tocá ⚡ Auto-cargar.',
       tiktok: 'Abrí un perfil (tiktok.com/@usuario) y tocá ⚡ Auto-cargar.',
-      facebook: 'Abrí una página, su pestaña Reels o Videos, y tocá ⚡ Auto-cargar.'
+      facebook: 'Abrí una página, su pestaña Reels o Videos, y tocá ⚡ Auto-cargar.',
+      youtube: 'Abrí un canal (pestaña Videos o Shorts) o una búsqueda y tocá ⚡ Auto-cargar.'
     };
     return '<div class="empty"><h2>Todavía no hay posts</h2><ol>' +
       '<li>' + tips[platform] + '</li><li>Mientras bajás, TopFeed lee las vistas, likes, comentarios y compartidos.</li>' +
@@ -366,9 +391,17 @@
         '<div class="cap" title="' + esc(it.caption) + '">' + esc(it.hook || '—') + '</div>' +
         '<div class="meta"><span>' + (it.author ? '@' + esc(it.author) : '') + '</span><span>' + fdate(it.date) + '</span></div>' +
         '<div class="actions">' +
+        '<button class="btn sm" data-act="play" data-key="' + esc(it.key) + '">▶ Ver</button>' +
         '<button class="btn sm" data-act="dl" data-key="' + esc(it.key) + '">⬇ Bajar</button>' +
-        '<button class="btn sm" data-act="copy-cap" data-key="' + esc(it.key) + '">Copiar texto</button>' +
-        (it.video ? '<button class="btn sm" data-act="transcribe" data-key="' + esc(it.key) + '">Transcribir</button>' : '') +
+        (it.transcript ? '<button class="btn sm" data-act="show-tx" data-key="' + esc(it.key) + '">📝 Texto</button>' :
+          it.video ? '<button class="btn sm" data-act="transcribe" data-key="' + esc(it.key) + '">Transcribir</button>' : '') +
+        '<div class="menu"><button class="btn sm" data-act="menu">⋯</button><div class="items">' +
+        '<button data-act="dl-thumb" data-key="' + esc(it.key) + '">Bajar miniatura</button>' +
+        '<button data-act="copy-link" data-key="' + esc(it.key) + '">Copiar link</button>' +
+        '<button data-act="copy-cap" data-key="' + esc(it.key) + '">Copiar texto</button>' +
+        '<button data-act="copy-row" data-key="' + esc(it.key) + '">Copiar fila para planilla</button>' +
+        (it.author ? '<button data-act="open-owner" data-key="' + esc(it.key) + '">Ver perfil de la cuenta</button>' : '') +
+        '</div></div>' +
         '</div></div>';
     }).join('') + '</div>' +
       (v.sorted.length > st.limit ? '<p class="empty"><button class="btn" data-act="more">Mostrar más (' + (v.sorted.length - st.limit) + ' restantes)</button></p>' : '');
@@ -391,7 +424,7 @@
         '<td>' + (i + 1) + '</td>' +
         '<td>' + (safeUrl(it.thumb) ? '<a href="' + esc(safeUrl(it.url)) + '" target="_blank" rel="noopener"><img loading="lazy" src="' + esc(it.thumb) + '" alt=""></a>' : '') + '</td>' +
         '<td class="l">' + esc(it.author ? '@' + it.author : '') + '</td><td class="l">' + esc(it.type) + (it.pinned ? ' 📌' : '') + '</td>' +
-        '<td>' + fdate(it.date, true) + '</td><td>' + fmt(it.views) + '</td><td>' + fmt(it.likes) + '</td>' +
+        '<td>' + (it.approxDate ? '≈ ' + fdate(it.date) : fdate(it.date, true)) + '</td><td>' + fmt(it.views) + '</td><td>' + fmt(it.likes) + '</td>' +
         '<td>' + fmt(it.comments) + '</td><td>' + fmt(it.shares) + '</td><td>' + fmt(it.saves) + '</td>' +
         '<td>' + pct(it.er) + '</td><td>' + pct(it.erFollowers) + '</td>' +
         '<td>' + (it.outlier != null ? (it.outlier >= 2 ? '🔥 ' : '') + fmt(it.outlier, 1) + 'x' : '—') + '</td>' +
@@ -543,7 +576,7 @@
   }
 
   const SNAP_KEYS = ['key', 'platform', 'id', 'url', 'author', 'caption', 'date', 'type', 'views', 'likes', 'comments',
-    'shares', 'saves', 'duration', 'thumb', 'music', 'pinned', 'hashtags', 'followers'];
+    'shares', 'saves', 'duration', 'thumb', 'music', 'pinned', 'hashtags', 'followers', 'transcript', 'approxDate'];
 
   async function saveSnapshot() {
     const v = view();
@@ -568,6 +601,77 @@
   }
 
   // ---------- acciones ----------
+
+  function ownerUrl(it) {
+    const a = encodeURIComponent(it.author || '');
+    return { instagram: 'https://www.instagram.com/' + a + '/', tiktok: 'https://www.tiktok.com/@' + a,
+      facebook: 'https://www.facebook.com/' + a, youtube: 'https://www.youtube.com/@' + a }[it.platform];
+  }
+
+  function rowTSV(it) { return A.toTSV([it]).split('\n')[1]; }
+
+  function playItem(it) {
+    const m = document.createElement('div');
+    m.className = 'modal';
+    let media;
+    if (it.platform === 'youtube') {
+      media = document.createElement('iframe');
+      media.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(it.id) + '?autoplay=1';
+      media.allow = 'autoplay; encrypted-media; picture-in-picture';
+      media.allowFullscreen = true;
+    } else if (it.video) {
+      media = document.createElement('video');
+      media.src = it.video; media.controls = true; media.autoplay = true; media.playsInline = true;
+    } else {
+      window.open(it.url, '_blank', 'noopener');
+      return;
+    }
+    media.className = 'player';
+    m.innerHTML = '<div class="box"><div class="t"><span>' + esc(it.hook || it.caption || 'Video') + '</span><span>' +
+      '<a class="btn sm" href="' + esc(safeUrl(it.url)) + '" target="_blank" rel="noopener">Abrir en ' + esc(NAMES[it.platform]) + '</a> ' +
+      '<button class="btn sm" data-act="modal-close">✕</button></span></div><div class="c pc"></div></div>';
+    m.querySelector('.pc').appendChild(media);
+    ui.panel.appendChild(m);
+  }
+
+  async function transcribeItems(list) {
+    list = list.filter((i) => i.video && !i.transcript);
+    if (!list.length) return toast('No hay videos para transcribir en la selección (YouTube no entrega el archivo).');
+    let ok = 0;
+    for (let n = 0; n < list.length; n++) {
+      st.txBusy = (n + 1) + '/' + list.length;
+      renderStatus(view());
+      try { list[n].transcript = await send({ type: 'transcribe', url: list[n].video }); ok++; }
+      catch (e) { toast(e.message, 6000); if (/clave/i.test(e.message)) break; }
+    }
+    st.txBusy = null;
+    render();
+    toast(ok + ' video(s) transcriptos. La transcripción ya está en las exportaciones.');
+  }
+
+  // YouTube: pide likes, fecha exacta y vistas exactas de los videos que todavía no los tienen.
+  let enrichResolve = null;
+  function enrichYouTube(list) {
+    const ids = (list || view().items).filter((i) => i.platform === 'youtube' && !i.exact).map((i) => i.id);
+    if (!ids.length) { toast('Los videos ya tienen likes y fecha exacta.'); return Promise.resolve(); }
+    st.enrich = { done: 0, total: ids.length };
+    renderStatus(view());
+    window.postMessage({ source: TAG + '_cmd', cmd: 'yt-enrich', ids }, location.origin);
+    return new Promise((r) => { enrichResolve = r; });
+  }
+
+  function onEnrichProgress(d) {
+    if (!st.enrich) return;
+    st.enrich.done = d.done;
+    if (d.error) toast(d.error, 6000);
+    if (d.error || d.done >= d.total) {
+      st.enrich = null;
+      lastVersion = -1;
+      render();
+      if (!d.error) toast('Listo: likes, fechas y vistas exactas de ' + d.total + ' videos.');
+      if (enrichResolve) { enrichResolve(); enrichResolve = null; }
+    } else if (ui.status) renderStatus(view());
+  }
 
   function byKey(key) { return store.items.get(key) || (st.viewing && st.viewing.items.find((i) => i.key === key)); }
 
@@ -659,6 +763,7 @@
     lastVersion = -1;
     render();
     toast('Auto-carga terminada (' + reason + '): ' + countForAuthor() + ' posts.');
+    if (platform === 'youtube') await enrichYouTube();
   }
 
   async function runAI() {
@@ -719,10 +824,19 @@
       case 'transcribe': {
         const it = byKey(key);
         toast('Transcribiendo… puede tardar un minuto.', 60000);
-        try { const text = await send({ type: 'transcribe', url: it.video }); toast('Listo.'); showModal('Transcripción', text); }
+        try { it.transcript = await send({ type: 'transcribe', url: it.video }); toast('Listo.'); showModal('Transcripción', it.transcript); render(); }
         catch (err) { toast(err.message, 6000); }
         break;
       }
+      case 'show-tx': { const it = byKey(key); showModal('Transcripción', it.transcript || ''); break; }
+      case 'tx-selected': transcribeItems(Array.from(st.selected).map(byKey).filter(Boolean)); break;
+      case 'sel-all': view().sorted.forEach((i) => st.selected.add(i.key)); render(); break;
+      case 'play': playItem(byKey(key)); break;
+      case 'yt-enrich': enrichYouTube(); break;
+      case 'dl-thumb': { const it = byKey(key); if (it && it.thumb) send({ type: 'download', files: [{ url: it.thumb, name: [it.platform, it.author || 'cuenta', it.id].join('_') + '.jpg' }] }).then(() => toast('Miniatura descargada.')).catch((e) => toast(e.message)); break; }
+      case 'copy-link': copy((byKey(key) || {}).url || '', 'Link copiado.'); break;
+      case 'copy-row': copy(rowTSV(byKey(key)), 'Fila copiada. Pegala en tu planilla.'); break;
+      case 'open-owner': window.open(ownerUrl(byKey(key)), '_blank', 'noopener'); break;
       case 'ai-run': runAI(); break;
       case 'ai-copy': copy(st.aiText, 'Resultado copiado.'); break;
       case 'snap-view': { const s = (await getSnapshots()).find((x) => String(x.id) === t.dataset.id); if (s) { st.viewing = s; st.tab = 'grid'; render(); } break; }

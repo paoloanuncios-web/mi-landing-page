@@ -101,6 +101,10 @@ svg .val { fill: var(--text); font-weight: 700; }
 .modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; width: min(720px, 92%); max-height: 80%; display: flex; flex-direction: column; }
 .modal .box .t { padding: 12px 14px; border-bottom: 1px solid var(--line); font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
 .modal .box .c { padding: 14px; overflow: auto; white-space: pre-wrap; }
+.modal .box .pc { display: flex; justify-content: center; background: #000; padding: 0; }
+.player { width: 100%; max-height: 70vh; aspect-ratio: 16/9; border: 0; background: #000; }
+video.player { aspect-ratio: auto; }
+.actions .menu .items { right: auto; left: 0; bottom: calc(100% + 4px); top: auto; }
 .ai textarea { width: 100%; min-height: 70px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px; resize: vertical; }
 .md h1, .md h2, .md h3 { font-size: 15px; margin: 16px 0 6px; color: #c4b5fd; }
 .md p { margin: 6px 0; } .md ul, .md ol { margin: 6px 0; padding-left: 20px; }
