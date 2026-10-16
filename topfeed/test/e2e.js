@@ -67,10 +67,10 @@ async function routeAll(ctx) {
   await ctx.route('https://www.instagram.com/**', async (route) => {
     const u = new URL(route.request().url());
     if (u.pathname.startsWith('/graphql') && u.searchParams.get('reels')) {
-      // Pestaña Reels: solo reels, y acá sí vienen las vistas (como en el Instagram real).
+      // Pestaña Reels: como en el Instagram real con sesión, la API no trae las vistas; se ven en las miniaturas.
       const pg = Number(u.searchParams.get('p'));
       const edges = [];
-      for (let i = pg * PER; i < (pg + 1) * PER; i++) { const n = igNode(i, true); if (n.media_type === 2) edges.push({ node: { media: n } }); }
+      for (let i = pg * PER; i < (pg + 1) * PER; i++) { const n = igNode(i, false); if (n.media_type === 2) edges.push({ node: { media: n } }); }
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { xdt_api__v1__clips__user__connection_v2: { edges } } }) });
     }
     if (u.pathname.startsWith('/graphql')) {
@@ -83,7 +83,15 @@ async function routeAll(ctx) {
       xdt_api__v1__feed__user_timeline_graphql_connection: { edges: first } } }] };
     // Link a la pestaña Reels con navegación interna (como el React Router de Instagram).
     const reelsTab = '<a id="reels-tab" href="/pizzeria_x/reels/">Reels</a>';
+    const rl = []; for (let i = 0; i < PAGES * PER; i++) { const n = igNode(i, true); if (n.media_type === 2) rl.push([n.code, n.play_count]); }
     const spa = `
+      window.__rl = ${JSON.stringify(rl)}; let ri = 0;
+      const addPlain = add;
+      add = (n) => { if (!window.__reels) return addPlain(n);
+        for (let k = 0; k < n && ri < window.__rl.length; k++, ri++) {
+          const [code, v] = window.__rl[ri]; const a = document.createElement('a');
+          a.href = '/pizzeria_x/reel/' + code + '/'; a.style.cssText = 'display:block;height:260px;margin:8px;background:#ddd';
+          a.innerHTML = '<span>' + v.toLocaleString('es-AR') + '</span>'; feed.appendChild(a); } };
       window.__reels = false;
       document.getElementById('reels-tab').addEventListener('click', (e) => {
         e.preventDefault(); history.pushState({}, '', '/pizzeria_x/reels/');

@@ -23,8 +23,58 @@
     if (e.data.source === TAG + '_progress') return onEnrichProgress(e.data);
     if (e.data.source !== TAG) return;
     X.ingestText(e.data.text, store, platform);
+    if (platform === 'instagram' && e.data.text.length < 3e6) {
+      rawLog.push({ url: String(e.data.url).slice(0, 160), text: e.data.text });
+      if (rawLog.length > 25) rawLog.shift();
+    }
     changed();
   });
+  const rawLog = [];
+
+  // Instagram muestra las vistas en cada miniatura de la pestaña Reels. Si la API no las trae,
+  // las leemos de la pantalla: <a href="/usuario/reel/CODIGO/"> con el número adentro.
+  function igViewsFromDom() {
+    if (platform !== 'instagram') return 0;
+    const byCode = new Map();
+    for (const it of store.items.values()) {
+      const m = (it.url || '').match(/\/(?:reel|p)\/([^/]+)/);
+      if (m) byCode.set(m[1], it);
+    }
+    let n = 0;
+    document.querySelectorAll('a[href*="/reel/"]').forEach((a) => {
+      const m = a.getAttribute('href').match(/\/reel\/([^/?#]+)/);
+      const it = m && byCode.get(m[1]);
+      if (!it || it.views != null) return;
+      const tokens = (a.innerText || '').split(/\n+/).map((t) => t.trim()).filter((t) => /^\d[\d.,]*\s*(mil|k|m|mill|millones)?$/i.test(t));
+      if (!tokens.length) return;
+      const v = X.parseCount(tokens[0]);
+      if (v != null) { it.views = v; it.viewsFromScreen = true; n++; }
+    });
+    if (n) store.version++;
+    return n;
+  }
+
+  // Diagnóstico: qué campos numéricos manda Instagram para los reels sin vistas.
+  function igDiagnostic() {
+    const reels = store.list().filter((i) => i.platform === 'instagram' && i.type === 'reel' && i.views == null).slice(0, 4);
+    const out = { pagina: location.pathname, respuestas: rawLog.map((r) => r.url), reels: [] };
+    for (const it of reels) {
+      const code = ((it.url || '').match(/\/(?:reel|p)\/([^/]+)/) || [])[1];
+      const entry = { code, campos: {}, enPantalla: null };
+      for (const r of rawLog) {
+        const i = r.text.indexOf('"code":"' + code + '"');
+        if (i === -1) continue;
+        const win = r.text.slice(Math.max(0, i - 4000), i + 4000);
+        const re = /"([A-Za-z_]*(?:count|view|play)[A-Za-z_]*)":\s*("?[\d.,]+"?|null)/g;
+        let m;
+        while ((m = re.exec(win))) entry.campos[m[1]] = m[2];
+      }
+      const a = document.querySelector('a[href*="/reel/' + code + '"]');
+      if (a) entry.enPantalla = (a.innerText || '').slice(0, 120);
+      out.reels.push(entry);
+    }
+    return JSON.stringify(out, null, 1);
+  }
 
   // Facebook y YouTube no repiten la cuenta en cada video de su perfil: la completamos con la URL abierta.
   function fillPageAuthor() {
@@ -222,6 +272,7 @@
     clearTimeout(changeTimer);
     changeTimer = setTimeout(() => {
       fillPageAuthor();
+      igViewsFromDom();
       if (!host) return;
       const n = countForAuthor();
       ui.count.textContent = fmt(n);
@@ -292,6 +343,7 @@
       '<button data-act="rescan">Volver a leer la página</button>' +
       '<button data-act="clear">Borrar datos recolectados</button>' +
       '<button data-act="options">Opciones y claves de IA</button>' +
+      (platform === 'instagram' ? '<button data-act="ig-diag">Copiar diagnóstico de vistas</button>' : '') +
       '</div></div>' +
       '<button class="btn" data-act="toggle" title="Cerrar (Esc)">✕</button>';
   }
@@ -847,6 +899,7 @@
       await sleep(1200 + Math.random() * 900);
       // pequeño rebote para destrabar cargas perezosas
       if (stale >= 2) { window.scrollBy(0, -600); await sleep(400); window.scrollTo(0, document.documentElement.scrollHeight); }
+      igViewsFromDom();
       const n = counter();
       if (n >= st.auto.target) break;
       if (n === last) { if (++stale >= 9) break; } else { stale = 0; last = n; }
@@ -910,6 +963,7 @@
       case 'rescan': scanPage(); lastVersion = -1; render(); toast('Página leída de nuevo.'); break;
       case 'clear': if (confirm('¿Borrar todos los posts recolectados en esta pestaña?')) { store.clear(); st.selected.clear(); render(); } break;
       case 'options': send({ type: 'openOptions' }).catch(() => {}); break;
+      case 'ig-diag': copy(igDiagnostic(), 'Diagnóstico copiado. Pegalo en el chat con Claude.'); break;
       case 'all-authors': st.filters.author = ''; st.authorManual = true; render(); break;
       case 'select': if (t.checked) st.selected.add(key); else st.selected.delete(key); t.closest('.card') && t.closest('.card').classList.toggle('sel', t.checked); renderStatus(view()); break;
       case 'sel-none': st.selected.clear(); render(); break;
