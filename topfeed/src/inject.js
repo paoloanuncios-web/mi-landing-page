@@ -94,7 +94,11 @@
   // la pestaña Reels (/api/v1/clips/user/), con la sesión del usuario. La respuesta pasa por el fetch de arriba.
   async function igReels(d) {
     const pages = Math.max(1, Math.min(d.pages || 30, 80));
-    const report = (done, error) => window.postMessage({ source: TAG + '_progress', done, total: pages, error: error || null }, location.origin);
+    const stats = { items: 0, withViews: 0, status: null };
+    const info = () => 'Instagram devolvió ' + stats.items + ' reels, ' + stats.withViews + ' con vistas' +
+      (stats.status ? ' (respuesta ' + stats.status + ')' : '') + '.';
+    const report = (done, error) => window.postMessage({ source: TAG + '_progress', done, total: pages,
+      error: error || null, info: info() }, location.origin);
     const csrf = (document.cookie.match(/(?:^|; )csrftoken=([^;]+)/) || [])[1] || '';
     let maxId = '';
     for (let page = 0; page < pages; page++) {
@@ -107,9 +111,15 @@
           body: 'target_user_id=' + encodeURIComponent(d.userId) + '&page_size=12&include_feed_video=true' +
             (maxId ? '&max_id=' + encodeURIComponent(maxId) : '')
         });
-        if (!r.ok) return report(page, 'Instagram no devolvió los reels (' + r.status + '). Probá abrir la pestaña Reels del perfil.');
+        stats.status = r.status;
+        if (!r.ok) return report(page, 'Instagram no devolvió los reels (respuesta ' + r.status + '). Probá abrir la pestaña Reels del perfil y tocá Auto-cargar.');
         j = await r.json();
-      } catch (err) { return report(page, 'No pude leer los reels. Probá abrir la pestaña Reels del perfil.'); }
+      } catch (err) { return report(page, 'No pude leer los reels (' + String(err && err.message || err).slice(0, 80) + '). Probá abrir la pestaña Reels del perfil.'); }
+      for (const it of j.items || []) {
+        const m = it.media || it;
+        stats.items++;
+        if (m && (m.play_count != null || m.ig_play_count != null || m.view_count != null)) stats.withViews++;
+      }
       report(page + 1 < pages ? page + 1 : pages - 1);
       const pi = j.paging_info || {};
       if (!pi.more_available || !pi.max_id) break;

@@ -347,6 +347,7 @@
       (st.txBusy ? '<span>📝 Transcribiendo ' + st.txBusy + '…</span>' : '') +
       (st.enrich ? '<span>📈 ' + st.enrich.label + ' ' + st.enrich.done + '/' + st.enrich.total + '…</span>' : '') +
       (!st.enrich && !st.viewing && igNeedsViews(v.items) ? '<span><a href="#" data-act="ig-reels">📈 Traer vistas de los reels</a></span>' : '') +
+      (st.enrichNote && !st.enrich ? '<span>🔎 ' + esc(st.enrichNote) + '</span>' : '') +
       (platform === 'youtube' && !st.enrich && v.items.some((i) => !i.exact) ? '<span><a href="#" data-act="yt-enrich">📈 Completar likes y fechas exactas</a></span>' : '') +
       (st.compare && !st.viewing ? '<span>Comparando con snapshot del <b>' + esc(fdate(st.compare.savedAt, true)) + '</b></span>' : '') +
       (platform === 'instagram' && v.items.length && !v.items.some((i) => i.views != null) && /reels/.test(location.pathname) === false
@@ -713,7 +714,10 @@
     const prof = store.profileOf('instagram', st.filters.author);
     const mine = store.list().find((i) => i.ownerId && (i.author || '').toLowerCase() === (st.filters.author || '').toLowerCase());
     const userId = (prof && prof.id) || (mine && mine.ownerId);
-    if (!userId) { toast('No encontré la cuenta. Abrí el perfil y recargá la página.'); return Promise.resolve(); }
+    if (!userId) {
+      st.enrichNote = 'No encontré el ID de la cuenta en los datos leídos. Recargá el perfil (F5) y volvé a tocar Auto-cargar.';
+      toast(st.enrichNote, 8000); render(); return Promise.resolve();
+    }
     const pages = Math.min(80, Math.ceil(((prof && prof.posts) || 240) / 12));
     st.enrich = { done: 0, total: pages, label: 'Trayendo vistas de los reels', okMsg: 'Listo: vistas de los reels cargadas.' };
     renderStatus(view());
@@ -729,13 +733,14 @@
     if (!st.enrich) return;
     st.enrich.done = d.done;
     st.enrich.total = d.total;
-    if (d.error) toast(d.error, 6000);
+    if (d.info) st.enrichNote = d.info;
+    if (d.error) { toast(d.error, 10000); st.enrichNote = d.error + (d.info ? ' ' + d.info : ''); }
     if (d.error || d.done >= d.total) {
       st.enrichOk = st.enrich.okMsg;
       st.enrich = null;
       lastVersion = -1;
       render();
-      if (!d.error) toast(st.enrichOk || 'Listo.');
+      if (!d.error) toast((st.enrichOk || 'Listo.') + (d.info ? ' ' + d.info : ''), 10000);
       if (enrichResolve) { enrichResolve(); enrichResolve = null; }
     } else if (ui.status) renderStatus(view());
   }
