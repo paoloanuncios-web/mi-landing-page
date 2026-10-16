@@ -290,6 +290,22 @@ test('Business Suite: estadísticas privadas por post, en dos formatos', () => {
   assert.equal(items[0].hasPrivate, true);
 });
 
+test('Business Suite: tabla real de Meta (celdas con renderer) cruzada por texto', () => {
+  const cell = (v) => ({ __typename: 'BizWebUnifiedTableCellRenderer', renderer: { __typename: 'TofuUnifiedTableSingleValueMetricKPICell', value_for_sort: v, result: { value: v } } });
+  const row = { post: { message: { text: 'Llegaron los vestidos de Miami 🇺🇸 talles reales' } },
+    reach: cell(122), saves: cell(4), shares: cell(2), new_follows: cell(1), link_clicks: cell(0), views: cell(310), video_average_play_time: cell(5300) };
+  const m = X.bsExtractText(JSON.stringify({ data: { rows: [row] } }));
+  const key = X.textKey('Llegaron los vestidos de Miami 🇺🇸 talles reales');
+  assert.equal(m.get(key).reach, 122);
+  assert.equal(m.get(key).follows, 1);
+  const items = [{ platform: 'instagram', url: 'https://www.instagram.com/reel/QQQ/', caption: 'Llegaron los vestidos de Miami 🇺🇸 talles reales\n#moda', views: 2000 }];
+  const map = {}; m.forEach((v, k) => { map[k] = v; });
+  X.applyPrivate(items, map);
+  assert.equal(items[0].reach, 122);
+  assert.equal(items[0].saves, 4);
+  assert.equal(items[0].avgWatch, 5.3);
+});
+
 test('profileFromUrl detecta la cuenta del perfil abierto', () => {
   assert.equal(X.profileFromUrl('instagram', '/pizzeria_x/reels/'), 'pizzeria_x');
   assert.equal(X.profileFromUrl('instagram', '/reel/ABC/'), null);

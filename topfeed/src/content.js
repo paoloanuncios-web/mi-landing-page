@@ -77,6 +77,25 @@
         idx = r.text.indexOf('"reach"', idx + 4000);
       }
     }
+    // Filas de la tabla de Meta: qué celdas tiene cada una (para ver cómo identifica el post).
+    out.filas = [];
+    for (const r of rawLog) {
+      if (out.filas.length >= 2 || r.text.indexOf('"reach"') === -1) continue;
+      let t = r.text.trim(); if (t.startsWith('for (;;);')) t = t.slice(9);
+      const parts = []; try { parts.push(JSON.parse(t)); } catch (e) { t.split(/\r?\n/).forEach((l) => { try { parts.push(JSON.parse(l)); } catch (e2) { /* nada */ } }); }
+      parts.forEach((j) => X.walk(j, (o) => {
+        if (out.filas.length >= 2 || !o.reach || typeof o.reach !== 'object' || !o.reach.renderer) return;
+        const fila = {};
+        for (const k in o) {
+          if (k.indexOf('__') === 0) continue;
+          const v = o[k];
+          const num = v && v.renderer && v.renderer.result && v.renderer.result.value;
+          fila[k] = num != null ? num : JSON.stringify(v).replace(/https?:[^"]{60,}/g, '[url]').replace(/"__[a-z_]+":"[^"]*",?/gi, '').slice(0, 350);
+        }
+        out.filas.push(fila);
+      }));
+    }
+    delete out.ejemplosMetricas;
     return JSON.stringify(out, null, 1).slice(0, 9000);
   }
 

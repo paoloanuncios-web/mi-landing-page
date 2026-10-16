@@ -684,6 +684,10 @@
     if (typeof v === 'number') return Number.isFinite(v) ? v : null;
     if (typeof v === 'string' && /^\d[\d.,]*$/.test(v.trim())) return parseCount(v);
     if (isObj(v)) {
+      // Celdas de la tabla de Business Suite: {renderer: {value_for_sort, result: {value}}}
+      if (isObj(v.renderer)) return bsValue(v.renderer);
+      if (isObj(v.result) && 'value' in v.result) return bsValue(v.result.value);
+      if ('value_for_sort' in v) return bsValue(v.value_for_sort);
       if ('value' in v) return bsValue(v.value);
       if ('count' in v) return bsValue(v.count);
       if ('total_value' in v) return bsValue(v.total_value);
@@ -744,11 +748,36 @@
     return null;
   }
 
+  // Texto normalizado del post: sirve para cruzar la fila de Meta con el post de Instagram.
+  function textKey(t) {
+    if (!t || typeof t !== 'string') return null;
+    const n = t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '');
+    return n.length >= 12 ? 'txt:' + n.slice(0, 60) : null;
+  }
+
+  const BS_TEXT_KEYS = /^(message|caption|title|text|description|post_text|content_text|preview_text)$/i;
+  function bsTextBelow(o) {
+    const queue = [o]; let head = 0;
+    while (head < queue.length && head < 400) {
+      const n = queue[head++];
+      if (!n || typeof n !== 'object') continue;
+      if (!Array.isArray(n)) {
+        for (const k in n) {
+          const v = n[k];
+          if (BS_TEXT_KEYS.test(k) && typeof v === 'string' && !/^https?:/.test(v)) { const key = textKey(v); if (key) return key; }
+          if (BS_TEXT_KEYS.test(k) && isObj(v) && typeof v.text === 'string') { const key = textKey(v.text); if (key) return key; }
+        }
+      }
+      for (const k in n) if (n[k] && typeof n[k] === 'object' && !bsMetricName(k)) queue.push(n[k]);
+    }
+    return null;
+  }
+
   function bsExtract(json) {
     const found = new Map();
     walk(json, function (o) {
       let code = bsDirectCode(o);
-      if (!code && bsHasMetricsHere(o)) code = bsCodeBelow(o);
+      if (!code && bsHasMetricsHere(o)) code = bsCodeBelow(o) || bsTextBelow(o);
       if (!code) return;
       const metrics = bsCollect(o, {}, 3000);
       if (!Object.keys(metrics).length) return;
@@ -771,12 +800,25 @@
   }
 
   // Suma las estadísticas privadas guardadas a los posts de Instagram (por código).
+  // Cruce por texto: uno puede ser el comienzo del otro (Meta corta o saca hashtags).
+  function findByText(map, txtKeys, caption) {
+    const k = textKey(caption);
+    if (!k) return null;
+    if (map[k]) return map[k];
+    for (const t of txtKeys) {
+      const a = t.length < k.length ? t : k, b = t.length < k.length ? k : t;
+      if (a.length >= 24 && b.indexOf(a) === 0) return map[t];
+    }
+    return null;
+  }
+
   function applyPrivate(items, map) {
     if (!map) return;
+    const txtKeys = Object.keys(map).filter((k) => k.indexOf('txt:') === 0);
     for (const it of items) {
       if (it.platform !== 'instagram') continue;
       const code = ((it.url || '').match(/\/(?:p|reel)\/([^/]+)/) || [])[1];
-      const p = code && map[code];
+      const p = (code && map[code]) || findByText(map, txtKeys, it.caption);
       if (!p) continue;
       it.reach = p.reach != null ? p.reach : null;
       it.follows = p.follows != null ? p.follows : null;
@@ -792,7 +834,7 @@
   }
 
   const api = {
-    parseCount, toMs, relDate, ytCount, hashtagsOf, walk, scanFields, Store, ingestJSON, ingestText, platformOf, profileFromUrl, bsExtract, bsExtractText, applyPrivate,
+    parseCount, toMs, relDate, ytCount, hashtagsOf, walk, scanFields, Store, ingestJSON, ingestText, platformOf, profileFromUrl, bsExtract, bsExtractText, applyPrivate, textKey,
     _ig: { igIsMedia, igMedia, igIsProfile }, _tt: { ttIsItem, ttItem, ttIsProfile }, _fb: { fbIsStory, fbIsVideo }, _yt: { ytIsLockup, ytLockup, ytIsShort, ytShort, ytHeader, ytIsPlayer, ytPlayer }
   };
   root.TFExtract = api;
