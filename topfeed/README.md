@@ -86,7 +86,7 @@ Qué está verificado:
 | TikTok en el sitio real | ✔ Auto-carga de 100 posts, métricas, orden, Excel y descarga de video (5 MB) probados en tiktok.com |
 | Facebook en el sitio real | ✔ Pestaña Videos de una página: 18 videos con vistas, reacciones, títulos, duración, Excel y descarga (1,6 MB). Sin sesión, Facebook no muestra comentarios ni compartidos en esa pestaña |
 | YouTube en el sitio real | ✔ Canal: 120 videos con auto-carga, likes y fechas exactas, Shorts, Excel |
-| Instagram | ✔ Probado con páginas simuladas con el formato de su API. Instagram exige iniciar sesión desde servidores, así que en el sitio real hay que probarlo con sesión |
+| Instagram en el sitio real | ✔ Probado con sesión en una cuenta real: 107 posts con likes, comentarios, compartidos, fechas y seguidores desde la grilla, y 102 reels con vistas desde la pestaña Reels (outliers de hasta 25x) |
 | Ideas IA y transcripción | ✔ Pedido y respuesta probados con las APIs simuladas. Falta una prueba con claves reales |
 
 ## Uso responsable
