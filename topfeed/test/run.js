@@ -64,6 +64,7 @@ test('Instagram: lee reels, carruseles, fotos y perfil', () => {
   assert.equal(reel.url, 'https://www.instagram.com/reel/ABC123/');
   assert.equal(reel.author, 'pizzeria_x');
   assert.equal(reel.pinned, true);
+  assert.equal(reel.ownerId, '9');
   assert.equal(reel.date, 1717000000000);
   assert.deepEqual(reel.hashtags, ['#marketing', '#ventas']);
   assert.equal(s.items.get('instagram:222').type, 'carrusel');

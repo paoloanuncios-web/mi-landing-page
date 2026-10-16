@@ -345,11 +345,12 @@
       (st.selected.size ? '<span><b>' + st.selected.size + '</b> seleccionados · <a href="#" data-act="dl-selected">descargar</a> · <a href="#" data-act="tx-selected">transcribir</a> · <a href="#" data-act="sel-all">seleccionar todos</a> · <a href="#" data-act="sel-none">quitar selección</a></span>' : '') +
       (!st.selected.size && v.items.length ? '<span><a href="#" data-act="sel-all">Seleccionar todos</a></span>' : '') +
       (st.txBusy ? '<span>📝 Transcribiendo ' + st.txBusy + '…</span>' : '') +
-      (st.enrich ? '<span>📈 Completando likes y fechas ' + st.enrich.done + '/' + st.enrich.total + '…</span>' : '') +
+      (st.enrich ? '<span>📈 ' + st.enrich.label + ' ' + st.enrich.done + '/' + st.enrich.total + '…</span>' : '') +
+      (!st.enrich && !st.viewing && igNeedsViews(v.items) ? '<span><a href="#" data-act="ig-reels">📈 Traer vistas de los reels</a></span>' : '') +
       (platform === 'youtube' && !st.enrich && v.items.some((i) => !i.exact) ? '<span><a href="#" data-act="yt-enrich">📈 Completar likes y fechas exactas</a></span>' : '') +
       (st.compare && !st.viewing ? '<span>Comparando con snapshot del <b>' + esc(fdate(st.compare.savedAt, true)) + '</b></span>' : '') +
       (platform === 'instagram' && v.items.length && !v.items.some((i) => i.views != null) && /reels/.test(location.pathname) === false
-        ? '<span>💡 Instagram no manda las vistas en la grilla del perfil. Para ordenar por vistas abrí la pestaña <b>Reels</b> del perfil y tocá ⚡ Auto-cargar.</span>' : '') +
+        ? '<span>💡 Instagram no manda las vistas en la grilla del perfil: tocá <b>📈 Traer vistas de los reels</b> o abrí la pestaña <b>Reels</b>.</span>' : '') +
       (auto ? '<span>⏳ Cargando posts… se frena solo al llegar al objetivo o al final del perfil</span>' : '');
   }
 
@@ -701,21 +702,40 @@
   function enrichYouTube(list) {
     const ids = (list || view().items).filter((i) => i.platform === 'youtube' && !i.exact).map((i) => i.id);
     if (!ids.length) { toast('Los videos ya tienen likes y fecha exacta.'); return Promise.resolve(); }
-    st.enrich = { done: 0, total: ids.length };
+    st.enrich = { done: 0, total: ids.length, label: 'Completando likes y fechas', okMsg: 'Listo: likes, fechas y vistas exactas de ' + ids.length + ' videos.' };
     renderStatus(view());
     window.postMessage({ source: TAG + '_cmd', cmd: 'yt-enrich', ids }, location.origin);
     return new Promise((r) => { enrichResolve = r; });
   }
 
+  // Instagram: trae las vistas de los reels de la cuenta abierta (la grilla del perfil no las incluye).
+  function enrichInstagram() {
+    const prof = store.profileOf('instagram', st.filters.author);
+    const mine = store.list().find((i) => i.ownerId && (i.author || '').toLowerCase() === (st.filters.author || '').toLowerCase());
+    const userId = (prof && prof.id) || (mine && mine.ownerId);
+    if (!userId) { toast('No encontré la cuenta. Abrí el perfil y recargá la página.'); return Promise.resolve(); }
+    const pages = Math.min(80, Math.ceil(((prof && prof.posts) || 240) / 12));
+    st.enrich = { done: 0, total: pages, label: 'Trayendo vistas de los reels', okMsg: 'Listo: vistas de los reels cargadas.' };
+    renderStatus(view());
+    window.postMessage({ source: TAG + '_cmd', cmd: 'ig-reels', userId, pages }, location.origin);
+    return new Promise((r) => { enrichResolve = r; });
+  }
+
+  function igNeedsViews(items) {
+    return platform === 'instagram' && st.filters.author && items.some((i) => i.type === 'reel' && i.views == null);
+  }
+
   function onEnrichProgress(d) {
     if (!st.enrich) return;
     st.enrich.done = d.done;
+    st.enrich.total = d.total;
     if (d.error) toast(d.error, 6000);
     if (d.error || d.done >= d.total) {
+      st.enrichOk = st.enrich.okMsg;
       st.enrich = null;
       lastVersion = -1;
       render();
-      if (!d.error) toast('Listo: likes, fechas y vistas exactas de ' + d.total + ' videos.');
+      if (!d.error) toast(st.enrichOk || 'Listo.');
       if (enrichResolve) { enrichResolve(); enrichResolve = null; }
     } else if (ui.status) renderStatus(view());
   }
@@ -811,6 +831,7 @@
     render();
     toast('Auto-carga terminada (' + reason + '): ' + countForAuthor() + ' posts.');
     if (platform === 'youtube') await enrichYouTube();
+    else if (igNeedsViews(view().items)) await enrichInstagram();
   }
 
   async function runAI() {
@@ -880,6 +901,7 @@
       case 'sel-all': view().sorted.forEach((i) => st.selected.add(i.key)); render(); break;
       case 'play': playItem(byKey(key)); break;
       case 'yt-enrich': enrichYouTube(); break;
+      case 'ig-reels': enrichInstagram(); break;
       case 'copy-accounts': copy(Array.from(root.querySelectorAll('.acc-row')).map((r) => r.dataset.tsv).join('\n'), 'Lista copiada.'); break;
       case 'dl-thumb': { const it = byKey(key); if (it && it.thumb) send({ type: 'download', files: [{ url: it.thumb, name: [it.platform, it.author || 'cuenta', it.id].join('_') + '.jpg' }] }).then(() => toast('Miniatura descargada.')).catch((e) => toast(e.message)); break; }
       case 'copy-link': copy((byKey(key) || {}).url || '', 'Link copiado.'); break;

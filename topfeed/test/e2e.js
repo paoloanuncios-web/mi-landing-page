@@ -20,15 +20,17 @@ const HOOKS = ['3 errores que te hacen perder ventas', 'Así duplicamos pedidos 
 const CDN = 'https://scontent.cdninstagram.com/mock.png';
 const TTCDN = 'https://p16-sign.tiktokcdn.com/mock.png';
 
-function igNode(i) {
-  const views = Math.round(2000 + r() * 40000 * (i % 9 === 0 ? 8 : 1));
+// Como en el Instagram real: la grilla del perfil NO trae las vistas de los reels; la API de reels sí.
+function igNode(i, withViews) {
+  const rr = rnd(1000 + i);
+  const views = Math.round(2000 + rr() * 40000 * (i % 9 === 0 ? 8 : 1));
   const type = i % 4 === 0 ? 8 : i % 3 === 0 ? 1 : 2;
-  return { code: 'IG' + i, pk: String(1000 + i), taken_at: T0 - i * 86400 * 2 - Math.round(r() * 40000), media_type: type,
-    product_type: type === 2 ? 'clips' : 'feed', play_count: type === 2 ? views : undefined,
-    like_count: Math.round(views * (0.02 + r() * 0.06)), comment_count: Math.round(r() * 200),
+  return { code: 'IG' + i, pk: String(1000 + i), taken_at: T0 - i * 86400 * 2 - Math.round(rr() * 40000), media_type: type,
+    product_type: type === 2 ? 'clips' : 'feed', play_count: type === 2 && withViews ? views : undefined,
+    like_count: Math.round(views * (0.02 + rr() * 0.06)), comment_count: Math.round(rr() * 200),
     caption: { text: HOOKS[i % HOOKS.length] + '\nMás info en el link #pizza #promo' + (i % 2 ? ' #delivery' : '') },
     image_versions2: { candidates: [{ url: CDN }] }, video_versions: type === 2 ? [{ url: 'https://scontent.cdninstagram.com/v.mp4' }] : undefined, video_duration: type === 2 ? 8 + (i % 6) * 9 : undefined,
-    user: { username: 'pizzeria_x' } };
+    user: { username: 'pizzeria_x', pk: '777' } };
 }
 function ttItem(i) {
   const views = Math.round(5000 + r() * 90000 * (i % 7 === 0 ? 10 : 1));
@@ -64,13 +66,21 @@ async function routeAll(ctx) {
     await ctx.route(host, (route) => route.fulfill({ contentType: 'image/png', body: png }));
   await ctx.route('https://www.instagram.com/**', async (route) => {
     const u = new URL(route.request().url());
+    if (u.pathname.startsWith('/api/v1/clips/user')) {
+      const body = new URLSearchParams(route.request().postData() || '');
+      if (body.get('target_user_id') !== '777') return route.fulfill({ status: 400, body: '{}' });
+      const pg = Number(body.get('max_id') || 0);
+      const items = [];
+      for (let i = pg * PER; i < (pg + 1) * PER; i++) { const n = igNode(i, true); if (n.media_type === 2) items.push({ media: n }); }
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items, paging_info: { more_available: pg < PAGES - 1, max_id: String(pg + 1) } }) });
+    }
     if (u.pathname.startsWith('/graphql')) {
       const pg = Number(u.searchParams.get('p'));
       const edges = []; for (let i = pg * PER; i < (pg + 1) * PER; i++) edges.push({ node: igNode(i) });
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { xdt_api__v1__feed__user_timeline_graphql_connection: { edges } } }) });
     }
     const first = []; for (let i = 0; i < PER; i++) first.push({ node: igNode(i) });
-    const initial = { require: [{ data: { user: { username: 'pizzeria_x', full_name: 'Pizzería X', follower_count: 48200, media_count: 380 },
+    const initial = { require: [{ data: { user: { username: 'pizzeria_x', id: '777', full_name: 'Pizzería X', follower_count: 48200, media_count: 60 },
       xdt_api__v1__feed__user_timeline_graphql_connection: { edges: first } } }] };
     return route.fulfill({ contentType: 'text/html', body: page('<script type="application/json">' + JSON.stringify(initial) + '</script>',
       feedScript('(p) => fetch("/graphql/query?p=" + p).then(r => r.text())')) });
@@ -107,7 +117,11 @@ async function run(ctx, url, name, expectAtLeast) {
   await pg.selectOption('#topfeed-pro-root >> select[data-set="autoTarget"]', '0');
   await pg.click('#topfeed-pro-root >> [data-act="auto"]');
   await pg.waitForSelector('#topfeed-pro-root >> [data-act="auto"]', { timeout: 120000 });
+  if (name === 'instagram') {
+    for (let i = 0; i < 60; i++) { const t = await pg.textContent('#topfeed-pro-root >> .status'); if (!/Trayendo vistas/.test(t)) break; await pg.waitForTimeout(500); }
+  }
   const status = await pg.textContent('#topfeed-pro-root >> .status');
+  if (name === 'instagram' && /Vistas prom\.\s*—/.test(status)) throw new Error('instagram: no se completaron las vistas de los reels');
   const cards = await pg.locator('#topfeed-pro-root >> .card').count();
   console.log('  ' + name + ': ' + status.replace(/\s+/g, ' ').trim() + ' | tarjetas=' + cards);
   if (cards < expectAtLeast) throw new Error(name + ': se esperaban ' + expectAtLeast + ' posts y hay ' + cards);

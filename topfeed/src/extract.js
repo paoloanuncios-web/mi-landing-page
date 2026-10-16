@@ -143,6 +143,7 @@
       id: String(o.pk || o.id || code).split('_')[0],
       url: 'https://www.instagram.com/' + (isReel ? 'reel' : 'p') + '/' + code + '/',
       author: user.username || null,
+      ownerId: user.pk || user.id ? String(user.pk || user.id) : null,
       caption: caption,
       date: toMs(o.taken_at || o.taken_at_timestamp),
       type: type,
@@ -172,6 +173,7 @@
     return {
       platform: 'instagram',
       handle: o.username,
+      id: o.pk || o.id ? String(o.pk || o.id) : null,
       name: o.full_name || null,
       followers: firstNum(o.follower_count, o.edge_followed_by),
       following: firstNum(o.following_count, o.edge_follow),

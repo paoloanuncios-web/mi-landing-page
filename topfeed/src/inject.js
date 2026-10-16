@@ -62,7 +62,9 @@
   // YouTube: completar likes, fecha exacta y vistas exactas pidiendo cada video a la API interna
   // (/youtubei/v1/player). La respuesta pasa por el fetch de arriba y llega sola al content script.
   window.addEventListener('message', async (e) => {
-    if (e.source !== window || !e.data || e.data.source !== TAG + '_cmd' || e.data.cmd !== 'yt-enrich') return;
+    if (e.source !== window || !e.data || e.data.source !== TAG + '_cmd') return;
+    if (e.data.cmd === 'ig-reels') return igReels(e.data);
+    if (e.data.cmd !== 'yt-enrich') return;
     const cfg = window.ytcfg;
     const ctx = cfg && cfg.get && cfg.get('INNERTUBE_CONTEXT');
     const key = cfg && cfg.get && cfg.get('INNERTUBE_API_KEY');
@@ -87,4 +89,33 @@
     await Promise.all([worker(), worker(), worker(), worker()]);
     report(ids.length);
   });
+
+  // Instagram: la grilla del perfil no trae las vistas de los reels. Las pedimos a la misma API que usa
+  // la pestaña Reels (/api/v1/clips/user/), con la sesión del usuario. La respuesta pasa por el fetch de arriba.
+  async function igReels(d) {
+    const pages = Math.max(1, Math.min(d.pages || 30, 80));
+    const report = (done, error) => window.postMessage({ source: TAG + '_progress', done, total: pages, error: error || null }, location.origin);
+    const csrf = (document.cookie.match(/(?:^|; )csrftoken=([^;]+)/) || [])[1] || '';
+    let maxId = '';
+    for (let page = 0; page < pages; page++) {
+      let j;
+      try {
+        const r = await window.fetch('/api/v1/clips/user/', {
+          method: 'POST', credentials: 'include',
+          headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-ig-app-id': '936619743392459',
+            'x-csrftoken': csrf, 'x-requested-with': 'XMLHttpRequest' },
+          body: 'target_user_id=' + encodeURIComponent(d.userId) + '&page_size=12&include_feed_video=true' +
+            (maxId ? '&max_id=' + encodeURIComponent(maxId) : '')
+        });
+        if (!r.ok) return report(page, 'Instagram no devolvió los reels (' + r.status + '). Probá abrir la pestaña Reels del perfil.');
+        j = await r.json();
+      } catch (err) { return report(page, 'No pude leer los reels. Probá abrir la pestaña Reels del perfil.'); }
+      report(page + 1 < pages ? page + 1 : pages - 1);
+      const pi = j.paging_info || {};
+      if (!pi.more_available || !pi.max_id) break;
+      maxId = pi.max_id;
+      await new Promise((res) => setTimeout(res, 600 + Math.random() * 600));
+    }
+    report(pages);
+  }
 })();
