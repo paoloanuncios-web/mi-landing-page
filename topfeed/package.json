@@ -5,7 +5,7 @@
   "description": "Extensión de Chrome para ordenar y analizar posts de Instagram, TikTok y Facebook.",
   "scripts": {
     "test": "TZ=America/Argentina/Buenos_Aires node test/run.js",
-    "e2e": "node test/e2e.js",
+    "e2e": "PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS=1 node test/e2e.js",
     "zip": "rm -f ../topfeed-pro.zip && zip -r ../topfeed-pro.zip manifest.json src popup options icons README.md"
   }
 }

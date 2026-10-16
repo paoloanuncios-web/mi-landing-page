@@ -183,6 +183,24 @@ test('Facebook: Story con video, reacciones, comentarios y compartidos', () => {
   assert.equal(r.thumb, 'https://scontent.fbcdn.net/r.jpg');
 });
 
+test('TikTok: respuesta real de /api/post/item_list (capturada en octubre 2026)', () => {
+  const real = require('./fixtures/tiktok_item_list_real.json');
+  const s = new X.Store();
+  X.ingestJSON(real, s, 'tiktok');
+  assert.equal(s.items.size, 3);
+  const items = s.list();
+  for (const it of items) {
+    assert.equal(it.author, 'google');
+    assert.ok(it.views > 100000 && it.likes > 1000 && it.comments > 100 && it.shares > 100 && it.saves > 1000);
+    assert.ok(it.date > Date.UTC(2026, 0, 1));
+    assert.ok(/^https:\/\//.test(it.thumb));
+    assert.ok(/^https:\/\/www\.tiktok\.com\/@google\/(video|photo)\/\d+$/.test(it.url));
+  }
+  const top = A.sortItems(A.enrich(items, null), 'views', 'desc')[0];
+  assert.equal(top.views, 452000);
+  assert.equal(top.likes, 75100);
+});
+
 test('profileFromUrl detecta la cuenta del perfil abierto', () => {
   assert.equal(X.profileFromUrl('instagram', '/pizzeria_x/reels/'), 'pizzeria_x');
   assert.equal(X.profileFromUrl('instagram', '/reel/ABC/'), null);

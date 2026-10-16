@@ -66,9 +66,17 @@ Las redes cambian su código seguido. Si una red deja de mostrar datos, el arreg
 ## Tests
 
 ```bash
-npm test                                  # extractor + análisis
+npm test                                  # extractor + análisis (incluye una respuesta real de TikTok)
 NODE_PATH=$(npm root -g) npm run e2e      # extensión real en Chromium sobre páginas simuladas (requiere Playwright)
 ```
+
+Qué está verificado:
+
+| | Estado |
+|---|---|
+| TikTok en el sitio real | ✔ Auto-carga de 100 posts, métricas, orden, Excel y descarga de video (5 MB) probados en tiktok.com |
+| Instagram y Facebook | ✔ Probados con páginas simuladas con el formato de sus APIs. En el sitio real hay que probarlo con sesión iniciada |
+| Ideas IA y transcripción | ✔ Pedido y respuesta probados con las APIs simuladas. Falta una prueba con claves reales |
 
 ## Uso responsable
 

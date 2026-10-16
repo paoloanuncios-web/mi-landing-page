@@ -27,7 +27,7 @@ function igNode(i) {
     product_type: type === 2 ? 'clips' : 'feed', play_count: type === 2 ? views : undefined,
     like_count: Math.round(views * (0.02 + r() * 0.06)), comment_count: Math.round(r() * 200),
     caption: { text: HOOKS[i % HOOKS.length] + '\nMás info en el link #pizza #promo' + (i % 2 ? ' #delivery' : '') },
-    image_versions2: { candidates: [{ url: CDN }] }, video_duration: type === 2 ? 8 + (i % 6) * 9 : undefined,
+    image_versions2: { candidates: [{ url: CDN }] }, video_versions: type === 2 ? [{ url: 'https://scontent.cdninstagram.com/v.mp4' }] : undefined, video_duration: type === 2 ? 8 + (i % 6) * 9 : undefined,
     user: { username: 'pizzeria_x' } };
 }
 function ttItem(i) {
@@ -137,6 +137,45 @@ async function run(ctx, url, name, expectAtLeast) {
   await pg.close();
 }
 
+// IA y transcripción con las APIs de Anthropic y OpenAI simuladas.
+async function aiAndTranscribe(ctx) {
+  let [sw] = ctx.serviceWorkers();
+  if (!sw) sw = await ctx.waitForEvent('serviceworker');
+  await sw.evaluate(() => chrome.storage.local.set({ anthropicKey: 'sk-ant-test', openaiKey: 'sk-test' }));
+  let aiReq = null, sttReq = null;
+  await ctx.route('https://api.anthropic.com/**', (route) => {
+    aiReq = { headers: route.request().headers(), body: JSON.parse(route.request().postData()) };
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ stop_reason: 'end_turn',
+      content: [{ type: 'text', text: '## Patrones ganadores\n- Ganchos con **números** rinden 2x\n1. Gancho uno' }] }) });
+  });
+  await ctx.route('https://api.openai.com/**', (route) => {
+    sttReq = { headers: route.request().headers(), size: (route.request().postDataBuffer() || []).length };
+    route.fulfill({ contentType: 'text/plain', body: 'hola mundo transcripto' });
+  });
+  const pg = await ctx.newPage();
+  await pg.goto('https://www.instagram.com/pizzeria_x/');
+  await pg.click('#topfeed-pro-root >> .launcher');
+  await pg.click('#topfeed-pro-root >> [data-tab="ai"]');
+  await pg.fill('#topfeed-pro-root >> textarea[data-set="aiContext"]', 'Pizzería en Palermo');
+  await pg.click('#topfeed-pro-root >> [data-act="ai-run"]');
+  await pg.waitForSelector('#topfeed-pro-root >> .md h3');
+  const md = await pg.textContent('#topfeed-pro-root >> .md');
+  if (!/Patrones ganadores/.test(md) || !aiReq) throw new Error('IA: no se mostró la respuesta');
+  const b = aiReq.body;
+  if (b.model !== 'claude-opus-5-5' || b.fallbacks !== 'default' || !b.output_config || b.output_config.effort !== 'medium') throw new Error('IA: pedido mal armado');
+  if (aiReq.headers['x-api-key'] !== 'sk-ant-test' || aiReq.headers['anthropic-beta'] !== 'server-side-fallback-2026-07-01') throw new Error('IA: encabezados incorrectos');
+  if (!/Pizzería en Palermo/.test(b.messages[0].content) || !/vistas=/.test(b.messages[0].content)) throw new Error('IA: faltan datos en el prompt');
+  console.log('  IA: pedido OK (' + b.model + ', fallbacks=' + b.fallbacks + ') y respuesta dibujada');
+  await pg.screenshot({ path: path.join(OUT, 'ia-respuesta.png') });
+  await pg.click('#topfeed-pro-root >> [data-tab="grid"]');
+  await pg.locator('#topfeed-pro-root >> [data-act="transcribe"]').first().click();
+  await pg.waitForSelector('#topfeed-pro-root >> .modal .c');
+  const tx = await pg.textContent('#topfeed-pro-root >> .modal .c');
+  if (tx !== 'hola mundo transcripto' || !sttReq || sttReq.headers.authorization !== 'Bearer sk-test' || sttReq.size < 100) throw new Error('Transcripción: falló el circuito');
+  console.log('  Transcripción: video bajado (' + sttReq.size + ' bytes enviados) y texto mostrado');
+  await pg.close();
+}
+
 (async () => {
   const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'tf-prof-')), {
     channel: 'chromium', headless: true, viewport: { width: 1400, height: 900 }, acceptDownloads: true,
@@ -148,6 +187,7 @@ async function run(ctx, url, name, expectAtLeast) {
     await run(ctx, 'https://www.instagram.com/pizzeria_x/', 'instagram', total);
     await run(ctx, 'https://www.tiktok.com/@chef_ana', 'tiktok', total - PER); // el mock de TikTok solo trae el perfil en la carga inicial
     await run(ctx, 'https://www.facebook.com/pizzeriax', 'facebook', total - PER); // la carga inicial de FB no trae datos en el mock
+    await aiAndTranscribe(ctx);
     console.log('\nE2E OK · capturas en ' + OUT);
   } catch (e) {
     console.error('E2E FALLÓ:', e.message);

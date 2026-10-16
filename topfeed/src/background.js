@@ -7,6 +7,26 @@
 
 const CLAUDE_MODEL = 'claude-opus-5-5';
 
+// Los CDNs de video exigen el Referer de su red. Lo agregamos solo a los pedidos que hace
+// la extensión (descargas y transcripción: no salen de ninguna pestaña).
+const REFERER_RULES = [
+  [1, 'https://www.tiktok.com/', ['tiktok.com', 'tiktokcdn.com', 'tiktokcdn-us.com', 'tiktokv.com', 'byteoversea.com', 'ibytedtos.com']],
+  [2, 'https://www.instagram.com/', ['cdninstagram.com']],
+  [3, 'https://www.facebook.com/', ['fbcdn.net']]
+];
+
+async function installRefererRules() {
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: REFERER_RULES.map((r) => r[0]),
+    addRules: REFERER_RULES.map(([id, referer, domains]) => ({
+      id, priority: 1,
+      action: { type: 'modifyHeaders', requestHeaders: [{ header: 'referer', operation: 'set', value: referer }] },
+      condition: { requestDomains: domains, tabIds: [chrome.tabs.TAB_ID_NONE] }
+    }))
+  });
+}
+installRefererRules().catch(() => {});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const handlers = { download, transcribe, aiIdeas, openOptions, setBadge };
   const fn = handlers[msg && msg.type];
