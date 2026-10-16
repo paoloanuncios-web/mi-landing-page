@@ -67,10 +67,10 @@ async function routeAll(ctx) {
   await ctx.route('https://www.instagram.com/**', async (route) => {
     const u = new URL(route.request().url());
     if (u.pathname.startsWith('/graphql') && u.searchParams.get('reels')) {
-      // Pestaña Reels: como en el Instagram real con sesión, la API no trae las vistas; se ven en las miniaturas.
+      // Pestaña Reels: como en el Instagram real con sesión, la API no trae las vistas ni la cuenta; las vistas se ven en las miniaturas.
       const pg = Number(u.searchParams.get('p'));
       const edges = [];
-      for (let i = pg * PER; i < (pg + 1) * PER; i++) { const n = igNode(i, false); if (n.media_type === 2) edges.push({ node: { media: n } }); }
+      for (let i = pg * PER; i < (pg + 1) * PER; i++) { const n = igNode(i, false); delete n.user; if (n.media_type === 2) edges.push({ node: { media: n } }); }
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { xdt_api__v1__clips__user__connection_v2: { edges } } }) });
     }
     if (u.pathname.startsWith('/graphql')) {

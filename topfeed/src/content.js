@@ -76,9 +76,9 @@
     return JSON.stringify(out, null, 1);
   }
 
-  // Facebook y YouTube no repiten la cuenta en cada video de su perfil: la completamos con la URL abierta.
+  // Facebook, YouTube y la pestaña Reels de Instagram no repiten la cuenta en cada post del perfil:
+  // la completamos con la cuenta de la URL abierta.
   function fillPageAuthor() {
-    if (platform !== 'facebook' && platform !== 'youtube') return;
     const page = X.profileFromUrl(platform, location.pathname);
     if (!page) return;
     for (const it of store.items.values()) if (!it.author) it.author = page;
