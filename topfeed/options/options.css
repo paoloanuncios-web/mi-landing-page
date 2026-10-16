@@ -1,0 +1,13 @@
+body { margin: 0; background: #0f0d17; color: #ece9f5; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 680px; margin: 0 auto; padding: 24px 16px 60px; }
+h1 { font-size: 22px; }
+h2 { font-size: 16px; margin: 0 0 8px; }
+section { background: #17141f; border: 1px solid #2e2840; border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+label { display: block; margin: 10px 0; color: #9a93ad; }
+label.row { display: flex; gap: 8px; align-items: center; color: #ece9f5; }
+input[type=text], input[type=password], select { display: block; width: 100%; margin-top: 4px; padding: 9px; border-radius: 9px; border: 1px solid #2e2840; background: #1f1b2b; color: inherit; font: inherit; box-sizing: border-box; }
+button { padding: 8px 12px; border-radius: 9px; border: 1px solid #2e2840; background: #1f1b2b; color: inherit; font: inherit; cursor: pointer; margin-right: 6px; }
+button.danger:hover { border-color: #ef4444; }
+.muted { color: #9a93ad; }
+.ok { color: #22c55e; min-height: 1.5em; }
+a { color: #c4b5fd; }

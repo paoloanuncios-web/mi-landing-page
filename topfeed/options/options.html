@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>TopFeed Pro — Opciones</title>
+<link rel="stylesheet" href="options.css">
+</head>
+<body>
+<main>
+  <h1>▲ TopFeed Pro — Opciones</h1>
+
+  <section>
+    <h2>Preferencias</h2>
+    <label>Orden por defecto
+      <select id="defaultSort">
+        <option value="views">Vistas</option><option value="likes">Likes</option><option value="comments">Comentarios</option>
+        <option value="shares">Compartidos</option><option value="er">Engagement %</option><option value="outlier">Outlier</option>
+        <option value="viewsPerDay">Vistas por día</option><option value="date">Fecha</option>
+      </select>
+    </label>
+    <label class="row"><input type="checkbox" id="hideLauncher"> Ocultar el botón flotante (abrís el panel desde el ícono de la extensión)</label>
+  </section>
+
+  <section>
+    <h2>Ideas IA (Claude)</h2>
+    <p class="muted">Genera patrones ganadores, ganchos y guiones a partir de los posts top. Creá una clave en
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.
+      Se cobra por uso en tu cuenta de Anthropic.</p>
+    <label>Clave de Anthropic <input type="password" id="anthropicKey" placeholder="sk-ant-…" autocomplete="off"></label>
+  </section>
+
+  <section>
+    <h2>Transcripción de videos</h2>
+    <p class="muted">Convierte el audio de un reel o TikTok en texto. Claude no procesa audio, por eso este paso usa la API de
+      transcripción de OpenAI. Creá una clave en <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>.</p>
+    <label>Clave de OpenAI <input type="password" id="openaiKey" placeholder="sk-…" autocomplete="off"></label>
+    <label>Modelo de transcripción <input type="text" id="transcribeModel" placeholder="whisper-1"></label>
+  </section>
+
+  <section>
+    <h2>Datos guardados</h2>
+    <p class="muted" id="snapInfo">…</p>
+    <button id="exportSnaps">Exportar historial (JSON)</button>
+    <button id="clearSnaps" class="danger">Borrar historial</button>
+  </section>
+
+  <p class="muted">Las claves y los datos quedan solo en este navegador. TopFeed lee lo que ya ves en pantalla con tu propia sesión; no pide tu contraseña ni usa servidores propios.</p>
+  <p id="saved" class="ok"></p>
+</main>
+<script src="options.js"></script>
+</body>
+</html>

@@ -32,3 +32,8 @@ https://mi-landing-page.paolo-anuncios.workers.dev/
 ## Medición
 Completá los IDs en `window.PAO_TRACKING` dentro de `public/index.html` (Pixel de Meta, GA4, Google Ads).
 Al enviar el formulario se dispara el evento `Lead` / `generate_lead`.
+
+## TopFeed Pro (extensión de Chrome)
+
+En la carpeta [`topfeed/`](topfeed/) está la extensión para ordenar y analizar posts de Instagram, TikTok y Facebook
+(vistas, likes, engagement, outliers, exportación e ideas con IA). Instrucciones en [`topfeed/README.md`](topfeed/README.md).

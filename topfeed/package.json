@@ -1,0 +1,11 @@
+{
+  "name": "topfeed-pro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Extensión de Chrome para ordenar y analizar posts de Instagram, TikTok y Facebook.",
+  "scripts": {
+    "test": "TZ=America/Argentina/Buenos_Aires node test/run.js",
+    "e2e": "node test/e2e.js",
+    "zip": "rm -f ../topfeed-pro.zip && zip -r ../topfeed-pro.zip manifest.json src popup options icons README.md"
+  }
+}
