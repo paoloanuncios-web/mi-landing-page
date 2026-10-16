@@ -32,6 +32,8 @@ Funciona en Chrome, Edge, Brave y Opera (Chromium 111 o más nuevo).
 | Análisis | KPIs, rendimiento en el tiempo, mejor día y horario, duración ideal, comparación por formato, hashtags que rinden y ganchos ganadores. |
 | Exportar | Excel (.xls), CSV, JSON, Google Sheets (copia y abre una hoja nueva), copiar tabla o links. 24 columnas. |
 | Descargar | Video o imagen de un post o de todos los seleccionados, a la carpeta `Descargas/TopFeed`. |
+| Cuentas 👥 | Lista las cuentas que la red sugiere como similares y las que aparecen en búsquedas, con seguidores y vistas promedio. Ideal para encontrar competidores y referentes de un rubro. |
+| YouTube | Videos y Shorts de canales y búsquedas. Completa solo likes, fecha exacta y vistas exactas de cada video. |
 | Historial | Guarda snapshots por cuenta y muestra cuántas vistas sumó cada post desde la última vez. Ideal para seguir competencia. |
 | Ideas IA ✨ | Claude analiza los 25 posts top y devuelve patrones ganadores, qué evitar, 10 ganchos, 3 guiones de reel y 5 ideas. Requiere clave de Anthropic. |
 | Transcribir | Pasa el audio de un video a texto. Requiere clave de OpenAI (Claude no procesa audio). |
@@ -56,7 +58,7 @@ Comparado contra **Sort Feed 17.1** (versión real de la Chrome Web Store, insta
 | Panel de análisis (mejor día y horario, duración ideal, formatos, hashtags, ganchos) | ✘ | ✔ |
 | Historial con crecimiento entre fechas | ✘ | ✔ |
 | Ganchos y guiones con IA dentro del panel | ✘ (se conecta a Claude por MCP) | ✔ |
-| "Encontrar cuentas similares" | ✔ (nuevo) | ✘ |
+| Encontrar cuentas similares | ✔ (nuevo) | ✔ (pestaña Cuentas: sugeridas por la red y autores de búsquedas, con seguidores y vistas promedio) |
 | Precio | Free con límites + Pro pago | Gratis (IA y transcripción se pagan por uso con tu clave) |
 | Datos | Cuenta en sortfeed.com | Solo en tu navegador |
 

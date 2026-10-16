@@ -252,7 +252,7 @@
     renderBar();
     renderTabs();
     renderStatus(v);
-    const fn = { grid: renderGrid, table: renderTable, analytics: renderAnalytics, ai: renderAI, history: renderHistory }[st.tab];
+    const fn = { grid: renderGrid, table: renderTable, analytics: renderAnalytics, accounts: renderAccounts, ai: renderAI, history: renderHistory }[st.tab];
     fn(v);
     ui.body.scrollTop = top;
   }
@@ -327,7 +327,7 @@
   }
 
   function renderTabs() {
-    const tabs = [['grid', '▦ Grilla'], ['table', '☰ Tabla'], ['analytics', '📊 Análisis'], ['ai', '✨ Ideas IA'], ['history', '🕓 Historial']];
+    const tabs = [['grid', '▦ Grilla'], ['table', '☰ Tabla'], ['analytics', '📊 Análisis'], ['accounts', '👥 Cuentas'], ['ai', '✨ Ideas IA'], ['history', '🕓 Historial']];
     ui.tabs.innerHTML = tabs.map((t) => '<button class="tab' + (st.tab === t[0] ? ' on' : '') + '" data-act="tab" data-tab="' + t[0] + '">' + t[1] + '</button>').join('');
   }
 
@@ -515,6 +515,51 @@
       (hooks.length ? hooks.map((h) => '<li><span class="n">' + fmt(metricName === 'vistas' ? h.views : h.likes) + '</span><a href="' + esc(safeUrl(h.url)) + '" target="_blank" rel="noopener">' + esc(h.hook) + '</a></li>').join('') : '<li class="muted">Sin textos</li>') +
       '</ol><button class="btn sm" data-act="copy-hooks">Copiar ganchos</button></div>' +
       '</div>';
+  }
+
+  // Cuentas vistas en la navegación: el perfil abierto, sugeridas por la red ("cuentas similares"),
+  // autores de búsquedas y Explorar. Sirve para encontrar competidores y referentes.
+  function renderAccounts() {
+    const posts = new Map();
+    for (const it of store.list()) if (it.author) {
+      const k = it.author.toLowerCase();
+      const e = posts.get(k) || { n: 0, views: [] };
+      e.n++; if (it.views != null) e.views.push(it.views);
+      posts.set(k, e);
+    }
+    const byHandle = new Map();
+    for (const p of store.profiles.values()) if (p.platform === platform) byHandle.set(p.handle.toLowerCase(), Object.assign({}, p));
+    // Autores de los posts leídos (búsquedas, Explorar): también son cuentas a analizar.
+    for (const it of store.list()) {
+      if (!it.author || it.platform !== platform) continue;
+      const k = it.author.toLowerCase();
+      const r = byHandle.get(k) || { platform, handle: it.author };
+      if (it.followers != null && (r.followers == null || it.followers > r.followers)) r.followers = it.followers;
+      byHandle.set(k, r);
+    }
+    const rows = Array.from(byHandle.values())
+      .sort((a, b) => (b.followers || 0) - (a.followers || 0) || ((posts.get(b.handle.toLowerCase()) || {}).n || 0) - ((posts.get(a.handle.toLowerCase()) || {}).n || 0));
+    if (!rows.length) {
+      ui.body.innerHTML = '<div class="empty"><h2>Todavía no hay cuentas</h2><p>Abrí perfiles, búsquedas o Explorar: TopFeed guarda las cuentas que ' +
+        'la red te muestra, incluidas las <b>sugeridas como similares</b>.</p></div>';
+      return;
+    }
+    const cur = (st.filters.author || '').toLowerCase();
+    ui.body.innerHTML = '<div class="sec"><h3>👥 Cuentas encontradas (' + rows.length + ')</h3><div class="sub">El perfil abierto, las cuentas que ' +
+      NAMES[platform] + ' sugiere como similares y las que aparecen en búsquedas. Tocá una para analizarla.</div>' +
+      '<table><thead><tr><th class="l"></th><th class="l">Cuenta</th><th>Seguidores</th><th>Posts</th><th>Likes totales</th><th>Posts leídos</th><th>Vistas prom.</th><th></th></tr></thead><tbody>' +
+      rows.map((p) => {
+        const e = posts.get(p.handle.toLowerCase()) || { n: 0, views: [] };
+        const url = ownerUrl({ platform, author: p.handle });
+        const tsv = ['@' + p.handle, p.name || '', p.followers || '', e.n, Math.round(A.avg(e.views) || 0), url].join('\t');
+        return '<tr class="acc-row" data-tsv="' + esc(tsv) + '"><td class="l">' + (safeUrl(p.avatar) ? '<img src="' + esc(p.avatar) + '" alt="">' : '') + '</td>' +
+          '<td class="l"><b>@' + esc(p.handle) + '</b>' + (p.verified ? ' ✔' : '') + (p.handle.toLowerCase() === cur ? ' <span class="muted">(abierta)</span>' : '') +
+          '<div class="muted">' + esc(p.name || '') + '</div></td>' +
+          '<td>' + fmt(p.followers) + '</td><td>' + fmt(p.posts) + '</td><td>' + fmt(p.likesTotal) + '</td><td>' + e.n + '</td>' +
+          '<td>' + fmt(A.avg(e.views)) + '</td>' +
+          '<td><a class="btn sm" href="' + esc(url) + '">Analizar</a></td></tr>';
+      }).join('') + '</tbody></table>' +
+      '<p><button class="btn sm" data-act="copy-accounts">Copiar lista</button></p></div>';
   }
 
   function md(text) {
@@ -833,6 +878,7 @@
       case 'sel-all': view().sorted.forEach((i) => st.selected.add(i.key)); render(); break;
       case 'play': playItem(byKey(key)); break;
       case 'yt-enrich': enrichYouTube(); break;
+      case 'copy-accounts': copy(Array.from(root.querySelectorAll('.acc-row')).map((r) => r.dataset.tsv).join('\n'), 'Lista copiada.'); break;
       case 'dl-thumb': { const it = byKey(key); if (it && it.thumb) send({ type: 'download', files: [{ url: it.thumb, name: [it.platform, it.author || 'cuenta', it.id].join('_') + '.jpg' }] }).then(() => toast('Miniatura descargada.')).catch((e) => toast(e.message)); break; }
       case 'copy-link': copy((byKey(key) || {}).url || '', 'Link copiado.'); break;
       case 'copy-row': copy(rowTSV(byKey(key)), 'Fila copiada. Pegala en tu planilla.'); break;
