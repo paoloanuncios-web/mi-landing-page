@@ -271,6 +271,25 @@ test('YouTube: textos de vistas y fechas relativas', () => {
   assert.equal(X.profileFromUrl('instagram', '/pizzeria_x/saved/'), null);
 });
 
+test('Business Suite: estadísticas privadas por post, en dos formatos', () => {
+  const a = { data: { posts: [{ permalink_url: 'https://www.instagram.com/reel/ABC123/', insights: {
+    reach: 1000, saves: 20, shares: 5, follows: 3, profile_visits: 12, ig_reels_avg_watch_time: 4200 } }] } };
+  const b = { data: { edges: [{ node: { media: { permalink: 'https://www.instagram.com/p/XYZ789/' },
+    metrics: [{ name: 'reach', values: [{ value: 500 }] }, { name: 'saved', value: 7 }, { name: 'website_clicks', value: '9' }] } }] } };
+  const m = X.bsExtractText(JSON.stringify(a) + '\n' + JSON.stringify(b));
+  assert.deepEqual(m.get('ABC123'), { reach: 1000, bsSaves: 20, bsShares: 5, follows: 3, profileVisits: 12, avgWatch: 4200 });
+  assert.equal(m.get('XYZ789').reach, 500);
+  assert.equal(m.get('XYZ789').bsSaves, 7);
+  assert.equal(m.get('XYZ789').linkClicks, 9);
+  const items = [{ platform: 'instagram', url: 'https://www.instagram.com/reel/ABC123/', views: 9000, saves: null, shares: 2 }];
+  X.applyPrivate(items, { ABC123: m.get('ABC123') });
+  assert.equal(items[0].reach, 1000);
+  assert.equal(items[0].saves, 20);
+  assert.equal(items[0].shares, 5);
+  assert.equal(items[0].avgWatch, 4.2);
+  assert.equal(items[0].hasPrivate, true);
+});
+
 test('profileFromUrl detecta la cuenta del perfil abierto', () => {
   assert.equal(X.profileFromUrl('instagram', '/pizzeria_x/reels/'), 'pizzeria_x');
   assert.equal(X.profileFromUrl('instagram', '/reel/ABC/'), null);

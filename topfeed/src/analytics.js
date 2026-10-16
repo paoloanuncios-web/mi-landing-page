@@ -57,7 +57,8 @@
     views: (i) => i.views, likes: (i) => i.likes, comments: (i) => i.comments, shares: (i) => i.shares,
     saves: (i) => i.saves, er: (i) => i.er, erFollowers: (i) => i.erFollowers, outlier: (i) => i.outlier,
     interactions: (i) => i.interactions, viewsPerDay: (i) => i.viewsPerDay, date: (i) => i.date,
-    duration: (i) => i.duration, growthViews: (i) => i.growthViews
+    duration: (i) => i.duration, growthViews: (i) => i.growthViews,
+    reach: (i) => i.reach, follows: (i) => i.follows, profileVisits: (i) => i.profileVisits, linkClicks: (i) => i.linkClicks
   };
 
   function sortItems(items, by, dir) {
@@ -232,6 +233,8 @@
     ['Outlier (x mediana)', i => (i.outlier != null ? +i.outlier.toFixed(2) : null)],
     ['Vistas por día', i => (i.viewsPerDay != null ? Math.round(i.viewsPerDay) : null)],
     ['Crecimiento vistas', i => i.growthViews],
+    ['Alcance', i => i.reach], ['Seguidores nuevos', i => i.follows], ['Visitas al perfil', i => i.profileVisits],
+    ['Clics al link', i => i.linkClicks], ['Tiempo promedio visto (s)', i => (i.avgWatch != null ? +i.avgWatch.toFixed(1) : null)],
     ['Duración (s)', i => i.duration], ['Fijado', i => (i.pinned ? 'sí' : '')], ['Audio', i => i.music],
     ['Hashtags', i => (i.hashtags || []).join(' ')], ['Gancho', i => i.hook], ['Texto', i => i.caption],
     ['Transcripción', i => i.transcript],

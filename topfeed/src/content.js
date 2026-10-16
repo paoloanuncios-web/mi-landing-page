@@ -23,13 +23,54 @@
     if (e.data.source === TAG + '_progress') return onEnrichProgress(e.data);
     if (e.data.source !== TAG) return;
     X.ingestText(e.data.text, store, platform);
-    if (platform === 'instagram' && e.data.text.length < 3e6) {
+    if (isBS) savePrivate(X.bsExtractText(e.data.text));
+    if ((platform === 'instagram' || isBS) && e.data.text.length < 3e6) {
       rawLog.push({ url: String(e.data.url).slice(0, 160), text: e.data.text });
       if (rawLog.length > 25) rawLog.shift();
     }
     changed();
   });
   const rawLog = [];
+
+  // ---------- Estadísticas privadas (Meta Business Suite → tabla de Instagram) ----------
+  const isBS = location.hostname === 'business.facebook.com';
+  let privateMap = {};
+  function loadPrivate() {
+    try {
+      chrome.storage.local.get(['tf_private'], (r) => {
+        privateMap = (r && r.tf_private) || {};
+        st.bsCount = Object.keys(privateMap).length;
+        lastVersion = -1; changed();
+      });
+    } catch (e) { /* sin contexto */ }
+  }
+  function savePrivate(found) {
+    if (!found || !found.size) return;
+    chrome.storage.local.get(['tf_private'], (r) => {
+      const map = (r && r.tf_private) || {};
+      found.forEach((m, code) => { map[code] = Object.assign(map[code] || {}, m, { updatedAt: Date.now() }); });
+      chrome.storage.local.set({ tf_private: map });
+    });
+  }
+  try {
+    chrome.storage.onChanged.addListener((ch, area) => { if (area === 'local' && ch.tf_private) loadPrivate(); });
+  } catch (e) { /* sin contexto */ }
+
+  function bsDiagnostic() {
+    const out = { pagina: location.pathname + location.search.slice(0, 80), estadisticasGuardadas: Object.keys(privateMap).length,
+      respuestas: [], metricas: {}, ejemplo: null };
+    const keyRe = /"([A-Za-z_]*(?:reach|impression|play|save|share|follow|profile|click|watch|view|alcance)[A-Za-z_]*)"\s*:/gi;
+    for (const r of rawLog) {
+      const links = (r.text.match(/instagram\.com\\?\/(?:[^\/"]+\\?\/)?(?:p|reel)\\?\/[A-Za-z0-9_-]+/g) || []).length;
+      out.respuestas.push(r.url.replace(/[?].*/, '') + ' · ' + Math.round(r.text.length / 1024) + ' KB · ' + links + ' links IG');
+      let m; while ((m = keyRe.exec(r.text))) out.metricas[m[1]] = (out.metricas[m[1]] || 0) + 1;
+      if (!out.ejemplo && links) {
+        const i = r.text.search(/instagram\.com\\?\/(?:[^\/"]+\\?\/)?(?:p|reel)\\?\//);
+        out.ejemplo = r.text.slice(Math.max(0, i - 1500), i + 1500).replace(/https?:[^"]{60,}/g, '[url]');
+      }
+    }
+    return JSON.stringify(out, null, 1).slice(0, 7000);
+  }
 
   // Instagram muestra las vistas en cada miniatura de la pestaña Reels. Si la API no las trae,
   // las leemos de la pantalla: <a href="/usuario/reel/CODIGO/"> con el número adentro.
@@ -134,6 +175,7 @@
     } catch (e) { /* contexto de extensión invalidado */ }
   }
   loadSettings();
+  loadPrivate();
 
   function syncAuthorFromUrl() {
     if (st.authorManual) return;
@@ -167,6 +209,7 @@
   function view() {
     if (!st.viewing) fillPageAuthor();
     const all = source();
+    if (platform === 'instagram') X.applyPrivate(all, privateMap);
     const items = A.filterItems(all, st.filters);
     const prof = currentProfile();
     A.enrich(items, prof && prof.followers);
@@ -363,7 +406,8 @@
     ['views', 'Vistas'], ['likes', 'Likes / reacciones'], ['comments', 'Comentarios'], ['shares', 'Compartidos'],
     ['saves', 'Guardados'], ['interactions', 'Interacciones totales'], ['er', 'Engagement % (vistas)'],
     ['erFollowers', 'Engagement % (seguidores)'], ['outlier', 'Outlier (x mediana)'], ['viewsPerDay', 'Vistas por día'],
-    ['growthViews', 'Crecimiento desde snapshot'], ['date', 'Fecha'], ['duration', 'Duración']
+    ['growthViews', 'Crecimiento desde snapshot'], ['date', 'Fecha'], ['duration', 'Duración'],
+    ['reach', '🔒 Alcance'], ['follows', '🔒 Seguidores nuevos'], ['profileVisits', '🔒 Visitas al perfil'], ['linkClicks', '🔒 Clics al link']
   ];
 
   function renderBar() {
@@ -408,6 +452,8 @@
       (st.enrichNote && !st.enrich ? '<span>🔎 ' + esc(st.enrichNote) + '</span>' : '') +
       (platform === 'youtube' && !st.enrich && v.items.some((i) => !i.exact) ? '<span><a href="#" data-act="yt-enrich">📈 Completar likes y fechas exactas</a></span>' : '') +
       (st.compare && !st.viewing ? '<span>Comparando con snapshot del <b>' + esc(fdate(st.compare.savedAt, true)) + '</b></span>' : '') +
+      (isBS ? '<span>🔒 Estadísticas privadas guardadas: <b>' + fmt(st.bsCount || 0) + '</b> posts de Instagram · <a href="#" data-act="bs-diag">📋 Copiar diagnóstico</a></span>' : '') +
+      (platform === 'instagram' && v.items.some((i) => i.hasPrivate) ? '<span>🔒 Con estadísticas privadas: <b>' + v.items.filter((i) => i.hasPrivate).length + '</b></span>' : '') +
       (platform === 'instagram' && v.items.length && !v.items.some((i) => i.views != null) && /reels/.test(location.pathname) === false
         ? '<span>💡 Instagram no manda las vistas en la grilla del perfil: tocá <b>📈 Traer vistas de los reels</b> o abrí la pestaña <b>Reels</b>.</span>' : '') +
       (auto && auto.counter !== countForAuthor ? '<span>📈 Leyendo la pestaña Reels para traer las vistas…</span>' : '') +
@@ -415,6 +461,15 @@
   }
 
   function emptyState() {
+    if (isBS) {
+      return '<div class="empty"><h2>Estadísticas privadas de Instagram</h2><ol>' +
+        '<li>En Meta Business Suite entrá a <b>Estadísticas → Contenido</b> (o <b>Contenido → Publicaciones</b>).</li>' +
+        '<li>Elegí la cuenta de <b>Instagram</b> del cliente y el período más largo.</li>' +
+        '<li>Bajá la lista o tocá ⚡ Auto-cargar. TopFeed guarda alcance, guardados, compartidos, seguidores nuevos y más.</li>' +
+        '<li>Volvé al perfil de Instagram: esas columnas aparecen en la ☰ Tabla.</li></ol>' +
+        '<p>Guardadas hasta ahora: <b>' + fmt(st.bsCount || 0) + '</b> posts.</p>' +
+        '<p><button class="btn" data-act="bs-diag">📋 Copiar diagnóstico</button><br><span class="muted">Si el número no sube, tocá acá y pegá el texto en el chat con Claude.</span></p></div>';
+    }
     const tips = {
       instagram: 'Abrí un perfil (o su pestaña Reels) y tocá ⚡ Auto-cargar.',
       tiktok: 'Abrí un perfil (tiktok.com/@usuario) y tocá ⚡ Auto-cargar.',
@@ -478,10 +533,16 @@
     ['Dur.', 'duration'], ['Texto', null, 'l']
   ];
 
+  const PRIV_COLS = [['Alcance', 'reach'], ['Seg. +', 'follows'], ['Visitas perfil', 'profileVisits'], ['Clics link', 'linkClicks'], ['Visto prom.', null]];
+
   function renderTable(v) {
     if (!v.sorted.length) { ui.body.innerHTML = emptyState(); return; }
     const list = v.sorted.slice(0, Math.max(st.limit, 300));
-    ui.body.innerHTML = '<table><thead><tr>' + TABLE_COLS.map((c) =>
+    const priv = v.items.some((i) => i.hasPrivate);
+    const cols = priv ? TABLE_COLS.slice(0, -1).concat(PRIV_COLS, TABLE_COLS.slice(-1)) : TABLE_COLS;
+    const privCells = (it) => !priv ? '' : '<td>' + fmt(it.reach) + '</td><td>' + fmt(it.follows) + '</td><td>' + fmt(it.profileVisits) + '</td>' +
+      '<td>' + fmt(it.linkClicks) + '</td><td>' + (it.avgWatch != null ? fmt(it.avgWatch, 1) + 's' : '—') + '</td>';
+    ui.body.innerHTML = '<table><thead><tr>' + cols.map((c) =>
       '<th class="' + (c[2] || '') + (c[1] === st.sort ? ' on' : '') + '"' + (c[1] ? ' data-act="th" data-sort="' + c[1] + '"' : '') + '>' +
       esc(c[0]) + (c[1] === st.sort ? (st.dir === 'desc' ? ' ↓' : ' ↑') : '') + '</th>').join('') + '</tr></thead><tbody>' +
       list.map((it, i) => '<tr>' +
@@ -493,7 +554,7 @@
         '<td>' + pct(it.er) + '</td><td>' + pct(it.erFollowers) + '</td>' +
         '<td>' + (it.outlier != null ? (it.outlier >= 2 ? '🔥 ' : '') + fmt(it.outlier, 1) + 'x' : '—') + '</td>' +
         '<td>' + fmt(it.viewsPerDay) + '</td><td>' + (it.growthViews != null ? '<span class="grow">+' + fmt(it.growthViews) + '</span>' : '—') + '</td>' +
-        '<td>' + (it.duration ? Math.round(it.duration) + 's' : '—') + '</td>' +
+        '<td>' + (it.duration ? Math.round(it.duration) + 's' : '—') + '</td>' + privCells(it) +
         '<td class="cap2" title="' + esc(it.caption) + '"><a href="' + esc(safeUrl(it.url)) + '" target="_blank" rel="noopener">' + esc(it.hook || 'abrir') + '</a></td>' +
         '</tr>').join('') + '</tbody></table>' +
       (v.sorted.length > list.length ? '<div class="empty"><button class="btn" data-act="more">Mostrar más</button></div>' : '');
@@ -963,7 +1024,11 @@
       case 'dir': st.dir = st.dir === 'desc' ? 'asc' : 'desc'; render(); break;
       case 'th': if (st.sort === t.dataset.sort) st.dir = st.dir === 'desc' ? 'asc' : 'desc'; else { st.sort = t.dataset.sort; st.dir = 'desc'; } render(); break;
       case 'more': st.limit += 120; render(); break;
-      case 'auto': { const s = root.querySelector('[data-set="autoTarget"]'); autoLoad(Number(s && s.value) || 0); break; }
+      case 'auto': {
+        if (isBS) { autoLoad(0, { counter: () => st.bsCount || 0, quiet: true }); break; }
+        const s = root.querySelector('[data-set="autoTarget"]'); autoLoad(Number(s && s.value) || 0); break;
+      }
+      case 'bs-diag': copy(bsDiagnostic(), 'Diagnóstico copiado. Pegalo en el chat con Claude.'); break;
       case 'stop-auto': if (st.auto) st.auto.running = false; break;
       case 'export': exportAs(t.dataset.fmt); break;
       case 'snapshot': saveSnapshot(); break;

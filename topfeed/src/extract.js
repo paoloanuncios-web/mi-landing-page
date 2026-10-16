@@ -653,8 +653,146 @@
     return null;
   }
 
+
+  // ---------- Meta Business Suite (estadísticas privadas de cuentas propias) ----------
+  // Meta muestra por post: alcance, reproducciones, guardados, compartidos, seguidores nuevos,
+  // visitas al perfil, clics al link y tiempo visto. Los nombres exactos pueden variar, así que
+  // se buscan por patrón y se asocian al post de Instagram por su código (instagram.com/reel/CODIGO).
+  const BS_METRICS = [
+    ['reach', /^(reach|post_reach|accounts_reached|unique_reach|ig_reels_reach|alcance)$/i],
+    ['bsViews', /^(plays|views|video_views|ig_reels_video_view_total|impressions|total_plays|reproducciones)$/i],
+    ['bsSaves', /^(saves|saved|save_count|guardados)$/i],
+    ['bsShares', /^(shares|share_count|compartidos)$/i],
+    ['bsLikes', /^(likes|like_count)$/i],
+    ['bsComments', /^(comments|comment_count)$/i],
+    ['follows', /^(follows|new_follows|follows_count|followers_gained|seguidores_nuevos)$/i],
+    ['profileVisits', /^(profile_visits|profile_views|profile_activity|visitas_al_perfil)$/i],
+    ['linkClicks', /^(website_clicks|link_clicks|bio_link_clicked|profile_links_taps|clics_en_el_enlace)$/i],
+    ['avgWatch', /^(ig_reels_avg_watch_time|avg_watch_time|average_watch_time|avg_time_watched)$/i],
+    ['totalWatch', /^(ig_reels_video_view_total_time|total_watch_time|total_time_watched)$/i],
+    ['nonFollowerReach', /^(non_follower_reach|reach_non_followers)$/i],
+    ['followerReach', /^(follower_reach|reach_followers)$/i]
+  ];
+  const IG_LINK = /instagram\.com\/(?:[^/"]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]{5,})/;
+
+  function bsMetricName(k) {
+    for (const [f, re] of BS_METRICS) if (re.test(k)) return f;
+    return null;
+  }
+
+  function bsValue(v) {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v === 'string' && /^\d[\d.,]*$/.test(v.trim())) return parseCount(v);
+    if (isObj(v)) {
+      if ('value' in v) return bsValue(v.value);
+      if ('count' in v) return bsValue(v.count);
+      if ('total_value' in v) return bsValue(v.total_value);
+      if (Array.isArray(v.values) && v.values.length) return bsValue(v.values[v.values.length - 1]);
+    }
+    return null;
+  }
+
+  // Junta métricas dentro de un objeto: claves directas (reach: 123) y listas tipo
+  // [{name: 'reach', value: 123}] o [{metric: 'reach', values: [{value: 123}]}].
+  function bsCollect(node, out, budget) {
+    const queue = [node]; let head = 0;
+    while (head < queue.length && head < budget) {
+      const o = queue[head++];
+      if (!o || typeof o !== 'object') continue;
+      if (!Array.isArray(o)) {
+        const label = typeof o.name === 'string' ? o.name : typeof o.metric === 'string' ? o.metric :
+          typeof o.metric_name === 'string' ? o.metric_name : typeof o.key === 'string' ? o.key : null;
+        const lf = label && bsMetricName(label);
+        if (lf && out[lf] == null) { const v = bsValue(o); if (v != null) out[lf] = v; }
+        for (const k in o) {
+          const f = bsMetricName(k);
+          if (f && out[f] == null) { const v = bsValue(o[k]); if (v != null) out[f] = v; }
+        }
+      }
+      for (const k in o) if (o[k] && typeof o[k] === 'object') queue.push(o[k]);
+    }
+    return out;
+  }
+
+  function bsDirectCode(o) {
+    if (typeof o.shortcode === 'string') return o.shortcode;
+    for (const k in o) {
+      const v = o[k];
+      if (typeof v === 'string' && v.length < 300) { const m = v.match(IG_LINK); if (m) return m[1]; }
+    }
+    return null;
+  }
+
+  function bsHasMetricsHere(o) {
+    for (const k in o) {
+      if (bsMetricName(k)) return true;
+      const v = o[k];
+      if (Array.isArray(v) && v.some((x) => isObj(x) && typeof (x.name || x.metric || x.metric_name) === 'string' &&
+        bsMetricName(x.name || x.metric || x.metric_name))) return true;
+    }
+    return false;
+  }
+
+  function bsCodeBelow(o) {
+    const queue = [o]; let head = 0;
+    while (head < queue.length && head < 300) {
+      const n = queue[head++];
+      if (!n || typeof n !== 'object') continue;
+      if (!Array.isArray(n)) { const c = bsDirectCode(n); if (c) return c; }
+      for (const k in n) if (n[k] && typeof n[k] === 'object') queue.push(n[k]);
+    }
+    return null;
+  }
+
+  function bsExtract(json) {
+    const found = new Map();
+    walk(json, function (o) {
+      let code = bsDirectCode(o);
+      if (!code && bsHasMetricsHere(o)) code = bsCodeBelow(o);
+      if (!code) return;
+      const metrics = bsCollect(o, {}, 3000);
+      if (!Object.keys(metrics).length) return;
+      const prev = found.get(code) || {};
+      for (const k in metrics) if (prev[k] == null) prev[k] = metrics[k];
+      found.set(code, prev);
+    });
+    return found;
+  }
+
+  function bsExtractText(text) {
+    let t = (text || '').trim();
+    if (t.startsWith('for (;;);')) t = t.slice(9);
+    const out = new Map();
+    const merge = (m) => m.forEach((v, k) => out.set(k, Object.assign(out.get(k) || {}, v)));
+    try { merge(bsExtract(JSON.parse(t))); } catch (e) {
+      for (const line of t.split(/\r?\n/)) { try { merge(bsExtract(JSON.parse(line))); } catch (e2) { /* línea incompleta */ } }
+    }
+    return out;
+  }
+
+  // Suma las estadísticas privadas guardadas a los posts de Instagram (por código).
+  function applyPrivate(items, map) {
+    if (!map) return;
+    for (const it of items) {
+      if (it.platform !== 'instagram') continue;
+      const code = ((it.url || '').match(/\/(?:p|reel)\/([^/]+)/) || [])[1];
+      const p = code && map[code];
+      if (!p) continue;
+      it.reach = p.reach != null ? p.reach : null;
+      it.follows = p.follows != null ? p.follows : null;
+      it.profileVisits = p.profileVisits != null ? p.profileVisits : null;
+      it.linkClicks = p.linkClicks != null ? p.linkClicks : null;
+      it.avgWatch = p.avgWatch != null ? (p.avgWatch > 1000 ? p.avgWatch / 1000 : p.avgWatch) : null;
+      it.nonFollowerReach = p.nonFollowerReach != null ? p.nonFollowerReach : null;
+      if (p.bsSaves != null) it.saves = p.bsSaves;
+      if (p.bsShares != null && (it.shares == null || p.bsShares > it.shares)) it.shares = p.bsShares;
+      if (p.bsViews != null && it.views == null) it.views = p.bsViews;
+      it.hasPrivate = true;
+    }
+  }
+
   const api = {
-    parseCount, toMs, relDate, ytCount, hashtagsOf, walk, scanFields, Store, ingestJSON, ingestText, platformOf, profileFromUrl,
+    parseCount, toMs, relDate, ytCount, hashtagsOf, walk, scanFields, Store, ingestJSON, ingestText, platformOf, profileFromUrl, bsExtract, bsExtractText, applyPrivate,
     _ig: { igIsMedia, igMedia, igIsProfile }, _tt: { ttIsItem, ttItem, ttIsProfile }, _fb: { fbIsStory, fbIsVideo }, _yt: { ytIsLockup, ytLockup, ytIsShort, ytShort, ytHeader, ytIsPlayer, ytPlayer }
   };
   root.TFExtract = api;
