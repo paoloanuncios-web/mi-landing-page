@@ -273,9 +273,14 @@
     date: { creation_time: toMs, publish_time: toMs, created_time: toMs },
     url: {
       permalink_url: (v) => (fbUrlOk(v) ? v : null), url: (v) => (fbUrlOk(v) ? v : null),
-      wwwURL: (v) => (fbUrlOk(v) ? v : null), shareable_url: (v) => (fbUrlOk(v) ? v : null)
+      wwwURL: (v) => (fbUrlOk(v) ? v : null), shareable_url: (v) => (fbUrlOk(v) ? v : null),
+      canonical_uri_with_fallback: (v) => (fbUrlOk(v) ? v : null)
     },
     caption: { message: (v) => (isObj(v) && typeof v.text === 'string' ? v.text : null) },
+    title: {
+      savable_title: (v) => (isObj(v) && typeof v.text === 'string' ? v.text : null),
+      title: (v) => (isObj(v) && typeof v.text === 'string' ? v.text : null)
+    },
     author: {
       actors: (v) => (Array.isArray(v) && v[0] && v[0].name) || null,
       owning_profile: (v) => (isObj(v) && v.name) || null,
@@ -292,7 +297,8 @@
     },
     duration: {
       length_in_second: (v) => parseCount(v),
-      playable_duration_in_ms: (v) => (v ? Math.round(v / 1000) : null)
+      playable_duration_in_ms: (v) => (v ? Math.round(v / 1000) : null),
+      playable_duration: (v) => parseCount(v)
     },
     videoId: { __typename: (v, node) => (v === 'Video' && node.id ? String(node.id) : null) }
   };
@@ -317,7 +323,7 @@
     return {
       platform: 'facebook',
       id: String(kind === 'video' ? o.id : (o.post_id || o.id)),
-      url: url, author: f.author || null, caption: f.caption || '', date: f.date || null, type: type,
+      url: url, author: f.author || null, caption: f.caption || f.title || '', date: f.date || null, type: type,
       views: f.views != null ? f.views : null, likes: f.reactions != null ? f.reactions : null,
       comments: f.comments != null ? f.comments : null, shares: f.shares != null ? f.shares : null,
       saves: null, duration: f.duration || null, thumb: f.thumb || null, video: f.video || null,
@@ -452,6 +458,11 @@
     if (platform === 'tiktok') {
       const at = p.find(s => s[0] === '@');
       return at ? decodeURIComponent(at.slice(1)) : null;
+    }
+    if (platform === 'facebook') {
+      const fbReserved = ['watch', 'reel', 'reels', 'groups', 'events', 'marketplace', 'gaming', 'profile.php', 'pages',
+        'search', 'stories', 'photo', 'photo.php', 'story.php', 'permalink.php', 'login', 'friends', 'messages', 'notifications', 'share'];
+      return p[0] && fbReserved.indexOf(p[0].toLowerCase()) === -1 ? decodeURIComponent(p[0]) : null;
     }
     if (platform === 'instagram') {
       const reserved = ['explore', 'reels', 'reel', 'p', 'stories', 'direct', 'accounts', 'tv', 'about', 'legal', 'web'];

@@ -24,6 +24,14 @@
     changed();
   });
 
+  // Facebook no repite el nombre de la página en cada video: lo completamos con la página abierta.
+  function fillFacebookAuthor() {
+    if (platform !== 'facebook') return;
+    const page = X.profileFromUrl(platform, location.pathname);
+    if (!page) return;
+    for (const it of store.items.values()) if (!it.author) it.author = page;
+  }
+
   const scanned = new WeakSet();
   const DATA_RE = /taken_at|createTime|creation_time|play_count|playCount|follower_count|followerCount/;
   function scanPage() {
@@ -59,7 +67,7 @@
 
   function syncAuthorFromUrl() {
     if (st.authorManual) return;
-    const u = X.profileFromUrl(platform, location.pathname);
+    const u = platform === 'facebook' ? null : X.profileFromUrl(platform, location.pathname);
     if (u !== null && u !== st.filters.author) {
       st.filters.author = u;
       st.selected.clear();
@@ -198,6 +206,7 @@
   function changed() {
     clearTimeout(changeTimer);
     changeTimer = setTimeout(() => {
+      fillFacebookAuthor();
       if (!host) return;
       const n = countForAuthor();
       ui.count.textContent = fmt(n);

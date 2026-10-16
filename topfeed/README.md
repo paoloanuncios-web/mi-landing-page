@@ -75,7 +75,8 @@ Qué está verificado:
 | | Estado |
 |---|---|
 | TikTok en el sitio real | ✔ Auto-carga de 100 posts, métricas, orden, Excel y descarga de video (5 MB) probados en tiktok.com |
-| Instagram y Facebook | ✔ Probados con páginas simuladas con el formato de sus APIs. En el sitio real hay que probarlo con sesión iniciada |
+| Facebook en el sitio real | ✔ Pestaña Videos de una página: 18 videos con vistas, reacciones, títulos, duración, Excel y descarga (1,6 MB). Sin sesión, Facebook no muestra comentarios ni compartidos en esa pestaña |
+| Instagram | ✔ Probado con páginas simuladas con el formato de su API. Instagram exige iniciar sesión desde servidores, así que en el sitio real hay que probarlo con sesión |
 | Ideas IA y transcripción | ✔ Pedido y respuesta probados con las APIs simuladas. Falta una prueba con claves reales |
 
 ## Uso responsable

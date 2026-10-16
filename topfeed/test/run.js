@@ -201,11 +201,31 @@ test('TikTok: respuesta real de /api/post/item_list (capturada en octubre 2026)'
   assert.equal(top.likes, 75100);
 });
 
+test('Facebook: video real de la pestaña Videos de una página (capturado en octubre 2026)', () => {
+  const real = require('./fixtures/facebook_video_real.json');
+  const s = new X.Store();
+  X.ingestJSON(real, s, 'facebook');
+  assert.equal(s.items.size, 1);
+  const it = s.list()[0];
+  assert.equal(it.id, '452499129200583');
+  assert.equal(it.views, 12484);
+  assert.equal(it.likes, 833);
+  assert.equal(it.duration, 253);
+  assert.equal(it.date, 1616259726000);
+  assert.equal(it.type, 'video');
+  assert.ok(/facebook\.com\/NASA\/videos\//.test(it.url));
+  assert.ok(it.caption.startsWith('This week'));
+  assert.ok(/^https:\/\/scontent/.test(it.thumb));
+  assert.ok(/^https:\/\/video/.test(it.video));
+});
+
 test('profileFromUrl detecta la cuenta del perfil abierto', () => {
   assert.equal(X.profileFromUrl('instagram', '/pizzeria_x/reels/'), 'pizzeria_x');
   assert.equal(X.profileFromUrl('instagram', '/reel/ABC/'), null);
   assert.equal(X.profileFromUrl('tiktok', '/@chef_ana'), 'chef_ana');
   assert.equal(X.profileFromUrl('tiktok', '/foryou'), null);
+  assert.equal(X.profileFromUrl('facebook', '/NASA/videos'), 'NASA');
+  assert.equal(X.profileFromUrl('facebook', '/watch/'), null);
 });
 
 // --- Análisis ---
