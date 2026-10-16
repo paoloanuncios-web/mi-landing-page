@@ -66,13 +66,12 @@ async function routeAll(ctx) {
     await ctx.route(host, (route) => route.fulfill({ contentType: 'image/png', body: png }));
   await ctx.route('https://www.instagram.com/**', async (route) => {
     const u = new URL(route.request().url());
-    if (u.pathname.startsWith('/api/v1/clips/user')) {
-      const body = new URLSearchParams(route.request().postData() || '');
-      if (body.get('target_user_id') !== '777') return route.fulfill({ status: 400, body: '{}' });
-      const pg = Number(body.get('max_id') || 0);
-      const items = [];
-      for (let i = pg * PER; i < (pg + 1) * PER; i++) { const n = igNode(i, true); if (n.media_type === 2) items.push({ media: n }); }
-      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items, paging_info: { more_available: pg < PAGES - 1, max_id: String(pg + 1) } }) });
+    if (u.pathname.startsWith('/graphql') && u.searchParams.get('reels')) {
+      // Pestaña Reels: solo reels, y acá sí vienen las vistas (como en el Instagram real).
+      const pg = Number(u.searchParams.get('p'));
+      const edges = [];
+      for (let i = pg * PER; i < (pg + 1) * PER; i++) { const n = igNode(i, true); if (n.media_type === 2) edges.push({ node: { media: n } }); }
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { xdt_api__v1__clips__user__connection_v2: { edges } } }) });
     }
     if (u.pathname.startsWith('/graphql')) {
       const pg = Number(u.searchParams.get('p'));
@@ -82,8 +81,17 @@ async function routeAll(ctx) {
     const first = []; for (let i = 0; i < PER; i++) first.push({ node: igNode(i) });
     const initial = { require: [{ data: { user: { username: 'pizzeria_x', id: '777', full_name: 'Pizzería X', follower_count: 48200, media_count: 60 },
       xdt_api__v1__feed__user_timeline_graphql_connection: { edges: first } } }] };
-    return route.fulfill({ contentType: 'text/html', body: page('<script type="application/json">' + JSON.stringify(initial) + '</script>',
-      feedScript('(p) => fetch("/graphql/query?p=" + p).then(r => r.text())')) });
+    // Link a la pestaña Reels con navegación interna (como el React Router de Instagram).
+    const reelsTab = '<a id="reels-tab" href="/pizzeria_x/reels/">Reels</a>';
+    const spa = `
+      window.__reels = false;
+      document.getElementById('reels-tab').addEventListener('click', (e) => {
+        e.preventDefault(); history.pushState({}, '', '/pizzeria_x/reels/');
+        window.__reels = true; p = 0; busy = false; feed.innerHTML = ''; add(${PER});
+        fetch('/graphql/query?reels=1&p=0').then(r => r.text()); p = 1;
+      });`;
+    return route.fulfill({ contentType: 'text/html', body: page(reelsTab + '<script type="application/json">' + JSON.stringify(initial) + '</script>',
+      feedScript('(p) => fetch("/graphql/query?p=" + p + (window.__reels ? "&reels=1" : "")).then(r => r.text())') + spa) });
   });
   await ctx.route('https://www.tiktok.com/**', async (route) => {
     const u = new URL(route.request().url());
@@ -118,7 +126,7 @@ async function run(ctx, url, name, expectAtLeast) {
   await pg.click('#topfeed-pro-root >> [data-act="auto"]');
   await pg.waitForSelector('#topfeed-pro-root >> [data-act="auto"]', { timeout: 120000 });
   if (name === 'instagram') {
-    for (let i = 0; i < 60; i++) { const t = await pg.textContent('#topfeed-pro-root >> .status'); if (!/Trayendo vistas/.test(t)) break; await pg.waitForTimeout(500); }
+    for (let i = 0; i < 120; i++) { const t = await pg.textContent('#topfeed-pro-root >> .status'); if (!/Leyendo la pestaña Reels|Abriendo la pestaña Reels/.test(t) && /Vistas cargadas|no trajo vistas/.test(t)) break; await pg.waitForTimeout(500); }
   }
   const status = await pg.textContent('#topfeed-pro-root >> .status');
   if (name === 'instagram' && /Vistas prom\.\s*—/.test(status)) throw new Error('instagram: no se completaron las vistas de los reels');

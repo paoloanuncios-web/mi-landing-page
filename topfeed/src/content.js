@@ -345,13 +345,14 @@
       (st.selected.size ? '<span><b>' + st.selected.size + '</b> seleccionados · <a href="#" data-act="dl-selected">descargar</a> · <a href="#" data-act="tx-selected">transcribir</a> · <a href="#" data-act="sel-all">seleccionar todos</a> · <a href="#" data-act="sel-none">quitar selección</a></span>' : '') +
       (!st.selected.size && v.items.length ? '<span><a href="#" data-act="sel-all">Seleccionar todos</a></span>' : '') +
       (st.txBusy ? '<span>📝 Transcribiendo ' + st.txBusy + '…</span>' : '') +
-      (st.enrich ? '<span>📈 ' + st.enrich.label + ' ' + st.enrich.done + '/' + st.enrich.total + '…</span>' : '') +
+      (st.enrich ? '<span>📈 ' + st.enrich.label + (st.enrich.total ? ' ' + st.enrich.done + '/' + st.enrich.total : '') + '…</span>' : '') +
       (!st.enrich && !st.viewing && igNeedsViews(v.items) ? '<span><a href="#" data-act="ig-reels">📈 Traer vistas de los reels</a></span>' : '') +
       (st.enrichNote && !st.enrich ? '<span>🔎 ' + esc(st.enrichNote) + '</span>' : '') +
       (platform === 'youtube' && !st.enrich && v.items.some((i) => !i.exact) ? '<span><a href="#" data-act="yt-enrich">📈 Completar likes y fechas exactas</a></span>' : '') +
       (st.compare && !st.viewing ? '<span>Comparando con snapshot del <b>' + esc(fdate(st.compare.savedAt, true)) + '</b></span>' : '') +
       (platform === 'instagram' && v.items.length && !v.items.some((i) => i.views != null) && /reels/.test(location.pathname) === false
         ? '<span>💡 Instagram no manda las vistas en la grilla del perfil: tocá <b>📈 Traer vistas de los reels</b> o abrí la pestaña <b>Reels</b>.</span>' : '') +
+      (auto && auto.counter !== countForAuthor ? '<span>📈 Leyendo la pestaña Reels para traer las vistas…</span>' : '') +
       (auto ? '<span>⏳ Cargando posts… se frena solo al llegar al objetivo o al final del perfil</span>' : '');
   }
 
@@ -710,19 +711,37 @@
   }
 
   // Instagram: trae las vistas de los reels de la cuenta abierta (la grilla del perfil no las incluye).
-  function enrichInstagram() {
-    const prof = store.profileOf('instagram', st.filters.author);
-    const mine = store.list().find((i) => i.ownerId && (i.author || '').toLowerCase() === (st.filters.author || '').toLowerCase());
-    const userId = (prof && prof.id) || (mine && mine.ownerId);
-    if (!userId) {
-      st.enrichNote = 'No encontré el ID de la cuenta en los datos leídos. Recargá el perfil (F5) y volvé a tocar Auto-cargar.';
-      toast(st.enrichNote, 8000); render(); return Promise.resolve();
-    }
-    const pages = Math.min(80, Math.ceil(((prof && prof.posts) || 240) / 12));
-    st.enrich = { done: 0, total: pages, label: 'Trayendo vistas de los reels', okMsg: 'Listo: vistas de los reels cargadas.' };
+  // Instagram solo manda las vistas de los reels en la pestaña Reels del perfil. Abrimos esa pestaña
+  // (navegación interna de Instagram: no se pierde lo leído) y la recorremos para completar las vistas.
+  async function enrichInstagram() {
+    const u = st.filters.author;
+    if (!u) return;
+    const reelsPath = ('/' + u + '/reels').toLowerCase();
+    const here = () => location.pathname.replace(/\/$/, '').toLowerCase() === reelsPath;
+    const withViews = () => store.list().filter((i) => (i.author || '').toLowerCase() === u.toLowerCase() && i.views != null).length;
+    const before = withViews();
+    st.enrich = { done: 0, total: 0, label: 'Abriendo la pestaña Reels para traer las vistas', okMsg: '' };
     renderStatus(view());
-    window.postMessage({ source: TAG + '_cmd', cmd: 'ig-reels', userId, pages }, location.origin);
-    return new Promise((r) => { enrichResolve = r; });
+    if (!here()) {
+      const link = Array.from(document.querySelectorAll('a[href]')).find((a) => {
+        try { return new URL(a.href, location.href).pathname.replace(/\/$/, '').toLowerCase() === reelsPath; } catch (e) { return false; }
+      });
+      if (!link) {
+        st.enrich = null;
+        st.enrichNote = 'No encontré la pestaña Reels en la página. Abrí instagram.com/' + u + '/reels/ y tocá ⚡ Auto-cargar.';
+        render(); return;
+      }
+      link.click();
+      for (let i = 0; i < 20 && !here(); i++) await sleep(300);
+      await sleep(2500);
+    }
+    st.enrich = null;
+    await autoLoad(0, { counter: withViews, quiet: true });
+    const got = withViews() - before;
+    st.enrichNote = got > 0 ? 'Vistas cargadas desde la pestaña Reels: ' + withViews() + ' posts con vistas.'
+      : 'La pestaña Reels no trajo vistas nuevas. Si la cuenta no tiene reels, es normal.';
+    toast(st.enrichNote, 8000);
+    render();
   }
 
   function igNeedsViews(items) {
@@ -813,27 +832,31 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  async function autoLoad(target) {
+  // counter: qué se cuenta para saber si sigue llegando info (por defecto, posts de la cuenta).
+  async function autoLoad(target, opts) {
     if (st.auto) return;
-    st.auto = { target: target || Infinity, running: true };
+    opts = opts || {};
+    const counter = opts.counter || countForAuthor;
+    st.auto = { target: target || Infinity, running: true, counter };
     render();
     const scroller = findScroller();
-    let last = countForAuthor(), stale = 0;
+    let last = counter(), stale = 0;
     while (st.auto && st.auto.running) {
       if (scroller) scroller.scrollTop = scroller.scrollHeight;
       else window.scrollTo(0, (document.scrollingElement || document.documentElement).scrollHeight);
       await sleep(1200 + Math.random() * 900);
       // pequeño rebote para destrabar cargas perezosas
       if (stale >= 2) { window.scrollBy(0, -600); await sleep(400); window.scrollTo(0, document.documentElement.scrollHeight); }
-      const n = countForAuthor();
+      const n = counter();
       if (n >= st.auto.target) break;
       if (n === last) { if (++stale >= 9) break; } else { stale = 0; last = n; }
       renderHead(); renderStatus(view());
     }
-    const reason = st.auto && st.auto.running ? (countForAuthor() >= (st.auto.target || Infinity) ? 'objetivo alcanzado' : 'no hay más posts') : 'frenado';
+    const reason = st.auto && st.auto.running ? (counter() >= (st.auto.target || Infinity) ? 'objetivo alcanzado' : 'no hay más posts') : 'frenado';
     st.auto = null;
     lastVersion = -1;
     render();
+    if (opts.quiet) return;
     toast('Auto-carga terminada (' + reason + '): ' + countForAuthor() + ' posts.');
     if (platform === 'youtube') await enrichYouTube();
     else if (igNeedsViews(view().items)) await enrichInstagram();
