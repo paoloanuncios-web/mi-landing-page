@@ -73,6 +73,17 @@ test('Instagram: lee reels, carruseles, fotos y perfil', () => {
   assert.equal(s.profileOf('instagram', 'Pizzeria_X').followers, 25000);
 });
 
+test('Instagram: reel de la pestaña Reels sin fecha ni cuenta se reconoce', () => {
+  const s = new X.Store();
+  X.ingestJSON({ data: { xdt_api__v1__clips__user__connection_v2: { edges: [{ node: { media: {
+    code: 'RL1', pk: '555', media_type: 2, product_type: 'clips', play_count: 4321, like_count: 12 } } }] } } }, s, 'instagram');
+  const it = s.items.get('instagram:555');
+  assert.ok(it, 'el reel tiene que entrar');
+  assert.equal(it.views, 4321);
+  assert.equal(it.author, null);
+  assert.equal(it.date, null);
+});
+
 test('Instagram: formato GraphQL viejo (shortcode/edge_*)', () => {
   const s = new X.Store();
   X.ingestJSON(igOldGraph, s, 'instagram');

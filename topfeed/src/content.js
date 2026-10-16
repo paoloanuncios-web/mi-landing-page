@@ -54,27 +54,33 @@
     return n;
   }
 
-  // Diagnóstico: qué campos numéricos manda Instagram para los reels sin vistas.
+  // Diagnóstico para pegar en el chat: qué respuestas llegaron, qué trae cada "post" y qué hay en pantalla.
   function igDiagnostic() {
-    const reels = store.list().filter((i) => i.platform === 'instagram' && i.type === 'reel' && i.views == null).slice(0, 4);
-    const out = { pagina: location.pathname, respuestas: rawLog.map((r) => r.url), reels: [] };
-    for (const it of reels) {
-      const code = ((it.url || '').match(/\/(?:reel|p)\/([^/]+)/) || [])[1];
-      const entry = { code, campos: {}, enPantalla: null };
-      for (const r of rawLog) {
-        const i = r.text.indexOf('"code":"' + code + '"');
-        if (i === -1) continue;
-        const win = r.text.slice(Math.max(0, i - 4000), i + 4000);
-        const re = /"([A-Za-z_]*(?:count|view|play)[A-Za-z_]*)":\s*("?[\d.,]+"?|null)/g;
-        let m;
-        while ((m = re.exec(win))) entry.campos[m[1]] = m[2];
-      }
-      const a = document.querySelector('a[href*="/reel/' + code + '"]');
-      if (a) entry.enPantalla = (a.innerText || '').slice(0, 120);
-      out.reels.push(entry);
+    const out = { pagina: location.pathname, filtro: st.filters.author, posts: store.items.size,
+      autores: {}, respuestas: [], ejemplos: [], miniaturas: [] };
+    for (const it of store.list()) out.autores[it.author || '(sin cuenta)'] = (out.autores[it.author || '(sin cuenta)'] || 0) + 1;
+    for (const r of rawLog) {
+      const codes = (r.text.match(/"code":"[A-Za-z0-9_-]{8,}"/g) || []).length;
+      out.respuestas.push(r.url.replace(/[?].*/, '') + ' · ' + Math.round(r.text.length / 1024) + ' KB · ' + codes + ' códigos');
     }
-    return JSON.stringify(out, null, 1);
+    for (const r of rawLog.slice().reverse()) {
+      if (out.ejemplos.length >= 2) break;
+      const m = r.text.match(/"code":"([A-Za-z0-9_-]{8,})"/);
+      if (!m) continue;
+      const i = r.text.indexOf(m[0]);
+      const win = r.text.slice(Math.max(0, i - 2500), i + 2500);
+      const campos = {};
+      const re = /"([A-Za-z_]{2,40})":\s*("[^"]{0,24}"|-?[\d.]+|null|true|false)/g;
+      let k;
+      while ((k = re.exec(win))) if (/count|view|play|taken|code|pk|user|media|product|like|comment/i.test(k[1])) campos[k[1]] = k[2];
+      out.ejemplos.push({ code: m[1], campos });
+    }
+    document.querySelectorAll('a[href*="/reel/"]').forEach((a, n) => {
+      if (n < 4) out.miniaturas.push(a.getAttribute('href') + ' → ' + (a.innerText || '').replace(/\s+/g, ' ').slice(0, 60));
+    });
+    return JSON.stringify(out, null, 1).slice(0, 6000);
   }
+
 
   // Facebook, YouTube y la pestaña Reels de Instagram no repiten la cuenta en cada post del perfil:
   // la completamos con la cuenta de la URL abierta.
@@ -419,6 +425,7 @@
       '<li>' + tips[platform] + '</li><li>Mientras bajás, TopFeed lee las vistas, likes, comentarios y compartidos.</li>' +
       '<li>Ordená, filtrá, exportá o pedile ideas a la IA.</li></ol>' +
       (st.filters.author ? '<p>Filtrando por <b>@' + esc(st.filters.author) + '</b>. <a href="#" data-act="all-authors">Ver todas las cuentas</a></p>' : '') +
+      (platform === 'instagram' ? '<p><button class="btn" data-act="ig-diag">📋 Copiar diagnóstico</button><br><span class="muted">Si no aparecen tus posts, tocá acá y pegá el texto en el chat con Claude.</span></p>' : '') +
       '</div>';
   }
 

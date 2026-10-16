@@ -114,11 +114,14 @@
 
   // ---------- Instagram ----------
 
+  // La pestaña Reels manda los reels sin fecha (taken_at): alcanza con código + ID + algún dato del post.
   function igIsMedia(o) {
-    return (typeof o.code === 'string' || typeof o.shortcode === 'string') &&
-      (o.taken_at != null || o.taken_at_timestamp != null) &&
-      ('like_count' in o || 'edge_liked_by' in o || 'edge_media_preview_like' in o ||
-       'play_count' in o || 'comment_count' in o || 'edge_media_to_comment' in o || 'media_type' in o);
+    if (typeof o.code !== 'string' && typeof o.shortcode !== 'string') return false;
+    const hasData = 'like_count' in o || 'edge_liked_by' in o || 'edge_media_preview_like' in o ||
+      'play_count' in o || 'ig_play_count' in o || 'view_count' in o || 'comment_count' in o ||
+      'edge_media_to_comment' in o || 'media_type' in o;
+    if (!hasData) return false;
+    return o.taken_at != null || o.taken_at_timestamp != null || o.pk != null || o.id != null;
   }
 
   function igMedia(o) {
