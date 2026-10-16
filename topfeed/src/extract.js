@@ -661,15 +661,15 @@
   const BS_METRICS = [
     ['reach', /^(reach|post_reach|accounts_reached|unique_reach|ig_reels_reach|alcance)$/i],
     ['bsViews', /^(plays|views|video_views|ig_reels_video_view_total|impressions|total_plays|reproducciones)$/i],
-    ['bsSaves', /^(saves|saved|save_count|guardados)$/i],
+    ['bsSaves', /^(saves|saved|save_count|net_saves|guardados)$/i],
     ['bsShares', /^(shares|share_count|compartidos)$/i],
     ['bsLikes', /^(likes|like_count)$/i],
     ['bsComments', /^(comments|comment_count)$/i],
     ['follows', /^(follows|new_follows|follows_count|followers_gained|seguidores_nuevos)$/i],
     ['profileVisits', /^(profile_visits|profile_views|profile_activity|visitas_al_perfil)$/i],
     ['linkClicks', /^(website_clicks|link_clicks|bio_link_clicked|profile_links_taps|clics_en_el_enlace)$/i],
-    ['avgWatch', /^(ig_reels_avg_watch_time|avg_watch_time|average_watch_time|avg_time_watched)$/i],
-    ['totalWatch', /^(ig_reels_video_view_total_time|total_watch_time|total_time_watched)$/i],
+    ['avgWatch', /^(ig_reels_avg_watch_time|avg_watch_time|average_watch_time|avg_time_watched|video_average_play_time)$/i],
+    ['totalWatch', /^(ig_reels_video_view_total_time|total_watch_time|total_time_watched|video_play_time)$/i],
     ['nonFollowerReach', /^(non_follower_reach|reach_non_followers)$/i],
     ['followerReach', /^(follower_reach|reach_followers)$/i]
   ];

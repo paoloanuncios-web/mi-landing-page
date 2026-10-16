@@ -68,8 +68,16 @@
         const i = r.text.search(/instagram\.com\\?\/(?:[^\/"]+\\?\/)?(?:p|reel)\\?\//);
         out.ejemplo = r.text.slice(Math.max(0, i - 1500), i + 1500).replace(/https?:[^"]{60,}/g, '[url]');
       }
+      // Ejemplos alrededor de las métricas (para ver cómo identifica Meta cada post).
+      if (!out.ejemplosMetricas) out.ejemplosMetricas = [];
+      let idx = r.text.indexOf('"reach"'), guard = 0;
+      while (idx !== -1 && out.ejemplosMetricas.length < 2 && guard++ < 20) {
+        const win = r.text.slice(Math.max(0, idx - 1800), idx + 700).replace(/https?:[^"]{60,}/g, '[url]').replace(/"[A-Za-z0-9+/=_-]{80,}"/g, '"[largo]"');
+        out.ejemplosMetricas.push(win);
+        idx = r.text.indexOf('"reach"', idx + 4000);
+      }
     }
-    return JSON.stringify(out, null, 1).slice(0, 7000);
+    return JSON.stringify(out, null, 1).slice(0, 9000);
   }
 
   // Instagram muestra las vistas en cada miniatura de la pestaña Reels. Si la API no las trae,
