@@ -348,6 +348,8 @@
       (st.enrich ? '<span>📈 Completando likes y fechas ' + st.enrich.done + '/' + st.enrich.total + '…</span>' : '') +
       (platform === 'youtube' && !st.enrich && v.items.some((i) => !i.exact) ? '<span><a href="#" data-act="yt-enrich">📈 Completar likes y fechas exactas</a></span>' : '') +
       (st.compare && !st.viewing ? '<span>Comparando con snapshot del <b>' + esc(fdate(st.compare.savedAt, true)) + '</b></span>' : '') +
+      (platform === 'instagram' && v.items.length && !v.items.some((i) => i.views != null) && /reels/.test(location.pathname) === false
+        ? '<span>💡 Instagram no manda las vistas en la grilla del perfil. Para ordenar por vistas abrí la pestaña <b>Reels</b> del perfil y tocá ⚡ Auto-cargar.</span>' : '') +
       (auto ? '<span>⏳ Cargando posts… se frena solo al llegar al objetivo o al final del perfil</span>' : '');
   }
 
